@@ -18,6 +18,9 @@
     <!-- Phone call (native emergency dial) -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- SMS for SOS alerts to trusted contacts -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
     <!-- Keep screen on during active trip -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

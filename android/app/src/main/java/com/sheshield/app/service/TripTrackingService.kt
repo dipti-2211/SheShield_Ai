@@ -162,15 +162,43 @@ class TripTrackingService : LifecycleService() {
         lifecycleScope.launch {
             try {
                 val loc = fusedLocation.lastLocation.await()
+                val lat = loc?.latitude ?: 0.0
+                val lng = loc?.longitude ?: 0.0
+
+                // 1. Notify backend
                 repo.triggerSos(
                     com.sheshield.app.data.model.SosRequest(
                         tripId = tid,
                         sessionToken = token,
-                        latitude = loc?.latitude ?: 0.0,
-                        longitude = loc?.longitude ?: 0.0,
+                        latitude = lat,
+                        longitude = lng,
                         trigger = "MANUAL"
                     )
                 )
+
+                // 2. Send SMS to all trusted contacts immediately
+                val trip = repo.getActiveTrip()
+                if (trip != null && trip.trustedContacts.isNotBlank() && trip.trustedContacts != "[]") {
+                    try {
+                        val contacts = com.google.gson.Gson().fromJson(
+                            trip.trustedContacts,
+                            object : com.google.gson.reflect.TypeToken<List<com.sheshield.app.data.model.TrustedContact>>() {}.type
+                        ) as List<com.sheshield.app.data.model.TrustedContact>
+                        val phones = contacts.map { it.phone }
+                        if (phones.isNotEmpty()) {
+                            com.sheshield.app.util.SmsHelper.sendSosMessages(
+                                context = applicationContext,
+                                phones = phones,
+                                latitude = lat,
+                                longitude = lng
+                            )
+                            Log.i(TAG, "SOS SMS sent to ${phones.size} contact(s)")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to parse/send SMS to contacts: ${e.message}")
+                    }
+                }
+
             } catch (e: Exception) {
                 Log.e(TAG, "SOS send failed: ${e.message}")
             }

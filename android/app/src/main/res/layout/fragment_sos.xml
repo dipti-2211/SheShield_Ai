@@ -56,7 +56,7 @@
                     android:id="@+id/tv_sos_location"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Last location: Loading..."
+                    android:text="📍 Last location: Loading..."
                     android:textColor="@color/on_surface"
                     android:textSize="13sp" />
 
@@ -68,9 +68,37 @@
                     android:textSize="13sp"
                     android:layout_marginTop="4dp" />
 
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/surface_variant"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginBottom="12dp" />
+
+                <!-- Shows list of contacts being notified via SMS -->
+                <TextView
+                    android:id="@+id/tv_sos_contacts"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📱 Checking contacts..."
+                    android:textColor="@color/on_surface"
+                    android:textSize="13sp" />
+
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
+
+        <!-- Re-send SMS button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_resend_sms"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="📨 Re-send SMS Alert"
+            android:textColor="@color/sos_red"
+            app:strokeColor="@color/sos_red"
+            android:layout_marginTop="16dp"
+            app:cornerRadius="12dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_call_emergency"
@@ -80,7 +108,7 @@
             android:text="@string/btn_call_emergency"
             android:textSize="16sp"
             android:textStyle="bold"
-            android:layout_marginTop="32dp"
+            android:layout_marginTop="12dp"
             app:cornerRadius="16dp" />
 
         <com.google.android.material.button.MaterialButton
