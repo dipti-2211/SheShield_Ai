@@ -3,121 +3,37 @@ package com.sheshield.app.util
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.sheshield.app.R
+import com.sheshield.app.data.model.*
 import com.sheshield.app.service.TripTrackingService
 import com.sheshield.app.ui.MainActivity
 
-/**
- * Creates and manages all app notification channels and notifications.
- * Android 8+ requires channels to be created before notifications can be shown.
- */
 object NotificationHelper {
-
-    const val CHANNEL_TRIP_ACTIVE  = "sheshield_trip_active"
-    const val CHANNEL_SAFETY       = "sheshield_safety"
-    const val CHANNEL_SOS          = "sheshield_sos"
-
-    const val NOTIF_TRIP_ACTIVE_ID = 1001
-    const val NOTIF_CHECK_IN_ID    = 1002
-    const val NOTIF_SOS_ID         = 1003
-
-    fun createChannels(ctx: Context) {
-        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_TRIP_ACTIVE, "Trip Monitoring",
-                NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Active when a trip is in progress"
-                setShowBadge(false)
-            }
-        )
-
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_SAFETY, "Safety Alerts",
-                NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Safety check-in requests"
-                enableVibration(true)
-            }
-        )
-
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_SOS, "SOS / Emergency",
-                NotificationManager.IMPORTANCE_MAX).apply {
-                description = "SOS and escalation alerts"
-                enableVibration(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            }
-        )
+    const val NOTIF_TRIP_ACTIVE_ID=1001
+    private const val CHECK=1002
+    private const val SOS=1003
+    fun createChannels(ctx:Context){val nm=ctx.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("trip","Journey monitoring",NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel("checkin","Safety check-ins",NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel("sos","SOS updates",NotificationManager.IMPORTANCE_HIGH))
     }
-
-    fun buildTripActiveNotification(ctx: Context, tripId: String): Notification {
-        val tapIntent = PendingIntent.getActivity(
-            ctx, 0,
-            Intent(ctx, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val stopIntent = PendingIntent.getService(
-            ctx, 1,
-            Intent(ctx, TripTrackingService::class.java).apply {
-                action = TripTrackingService.ACTION_STOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(ctx, CHANNEL_TRIP_ACTIVE)
-            .setContentTitle("SheShield – Trip Active")
-            .setContentText("Monitoring your journey")
-            .setSmallIcon(R.drawable.ic_shield_notification)
-            .setContentIntent(tapIntent)
-            .addAction(0, "End Trip", stopIntent)
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
+    private fun open(ctx:Context,screen:String)=PendingIntent.getActivity(ctx,screen.hashCode(),Intent(ctx,MainActivity::class.java).putExtra("screen",screen),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun action(ctx:Context,action:String,t:ActiveTrip)=PendingIntent.getService(ctx,(action+t.tripId+t.checkInId).hashCode(),Intent(ctx,TripTrackingService::class.java).setAction(action).putExtra(TripTrackingService.EXTRA_TRIP_ID,t.tripId).putExtra(TripTrackingService.EXTRA_EVENT_ID,t.checkInId),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun tripNotification(ctx:Context,t:ActiveTrip,text:String)=NotificationCompat.Builder(ctx,"trip").setSmallIcon(R.drawable.ic_shield_notification)
+        .setContentTitle(if(t.isRehearsal)"SheShield · Rehearsal" else "SheShield · Journey active").setContentText(text)
+        .setContentIntent(open(ctx,"trip")).setOngoing(true).setSilent(true).addAction(0,"End journey",action(ctx,TripTrackingService.ACTION_STOP,t)).build()
+    fun updateTrip(ctx:Context,t:ActiveTrip,text:String){ctx.getSystemService(NotificationManager::class.java).notify(NOTIF_TRIP_ACTIVE_ID,tripNotification(ctx,t,text))}
+    fun showCheckInNotification(ctx:Context,t:ActiveTrip){
+        val n=NotificationCompat.Builder(ctx,"checkin").setSmallIcon(R.drawable.ic_shield_notification).setContentTitle("Are you safe?")
+            .setContentText("Confirm before the countdown ends to stop contact escalation.").setContentIntent(open(ctx,"trip"))
+            .setWhen(t.checkInDeadlineMs).setUsesChronometer(true).setChronometerCountDown(true).setOnlyAlertOnce(true).setOngoing(true)
+            .addAction(0,"I'm safe",action(ctx,TripTrackingService.ACTION_SAFE,t)).addAction(0,"SOS",action(ctx,TripTrackingService.ACTION_SOS,t)).build()
+        ctx.getSystemService(NotificationManager::class.java).notify(CHECK,n)
     }
-
-    fun updateTripActiveNotification(ctx: Context, tripId: String, status: String) {
-        val notification = buildTripActiveNotification(ctx, tripId) // rebuild with same tap intent
-        (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(NOTIF_TRIP_ACTIVE_ID, notification)
-    }
-
-    fun showCheckInNotification(ctx: Context, tripId: String, message: String, deadlineMs: Long) {
-        val safeIntent = PendingIntent.getService(
-            ctx, 10,
-            Intent(ctx, TripTrackingService::class.java).apply {
-                action = TripTrackingService.ACTION_CHECK_IN_SAFE
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val sosIntent = PendingIntent.getService(
-            ctx, 11,
-            Intent(ctx, TripTrackingService::class.java).apply {
-                action = TripTrackingService.ACTION_SOS
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val remaining = ((deadlineMs - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
-        val notif = NotificationCompat.Builder(ctx, CHANNEL_SAFETY)
-            .setContentTitle("⚠️ Safety Check-In Required")
-            .setContentText(message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "$message\n\nRespond within ${remaining}s or SOS will be triggered."
-            ))
-            .setSmallIcon(R.drawable.ic_shield_notification)
-            .addAction(0, "✅ I'm Safe", safeIntent)
-            .addAction(0, "🆘 SOS", sosIntent)
-            .setAutoCancel(false)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .build()
-
-        (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(NOTIF_CHECK_IN_ID, notif)
-    }
-
-    fun cancelCheckInNotification(ctx: Context) {
-        (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .cancel(NOTIF_CHECK_IN_ID)
-    }
+    fun cancelCheckInNotification(ctx:Context){ctx.getSystemService(NotificationManager::class.java).cancel(CHECK)}
+    fun showSos(ctx:Context,incident:SosIncident){ctx.getSystemService(NotificationManager::class.java).notify(SOS,NotificationCompat.Builder(ctx,"sos").setSmallIcon(R.drawable.ic_shield_notification)
+        .setContentTitle(if(incident.mode=="REHEARSAL")"Rehearsal SOS" else "SOS requested").setContentText("Open to see available contact channels and results.").setContentIntent(open(ctx,"sos")).setOnlyAlertOnce(true).build())}
+    fun resume(ctx:Context){ctx.getSystemService(NotificationManager::class.java).notify(NOTIF_TRIP_ACTIVE_ID,NotificationCompat.Builder(ctx,"trip").setSmallIcon(R.drawable.ic_shield_notification).setContentTitle("Resume your journey")
+        .setContentText("Open SheShield to restore location monitoring.").setContentIntent(open(ctx,"trip")).build())}
 }

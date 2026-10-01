@@ -1,198 +1,186 @@
 package com.sheshield.app.data.repository
 
 import android.content.Context
-import androidx.lifecycle.LiveData
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.reflect.TypeToken
+import com.sheshield.app.BuildConfig
 import com.sheshield.app.data.model.*
 import com.sheshield.app.data.network.NetworkClient
+import com.sheshield.app.service.SyncWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
-/**
- * Single source of truth for trip lifecycle data.
- * Coordinates between the local Room database and the remote n8n backend.
- */
-class TripRepository(context: Context) {
-
-    private val db = AppDatabase.get(context)
-    private val dao = db.tripDao()
-    private val api = NetworkClient.api
-
-    val activeTrip: LiveData<ActiveTrip?> = dao.observeActiveTrip()
-
-    suspend fun getActiveTrip(): ActiveTrip? = withContext(Dispatchers.IO) {
-        dao.getActiveTrip()
+class TripRepository private constructor(private val context: Context) {
+    val dao=AppDatabase.get(context).tripDao()
+    val activeTrip=dao.observeActiveTrip()
+    val history=dao.observeHistory()
+    val prefs=context.getSharedPreferences("sheshield_prefs",Context.MODE_PRIVATE)
+    val gson=Gson()
+    private val mutex=Mutex()
+    private val syncMutex=Mutex()
+    private val api get()=NetworkClient.create(context)
+    private suspend fun queue(event:OutboxEvent){
+        val last=dao.queued().maxOfOrNull{it.createdAtMs}?:0L
+        dao.enqueue(event.copy(createdAtMs=maxOf(event.createdAtMs,last+1)))
+        SyncWorker.schedule(context)
     }
-
-    /**
-     * Plan a trip. Returns route options with risk scores from backend.
-     * Falls back to a demo-mode stub if the backend is unreachable.
-     */
-    suspend fun planTrip(request: PlanTripRequest): Result<PlanTripResponse> =
-        withContext(Dispatchers.IO) {
-            // Try n8n backend first, always fall back to demo data
-            runCatching {
-                val resp = api.planTrip(request)
-                if (resp.isSuccessful && resp.body() != null) {
-                    val body = resp.body()!!
-                    if (body.routes.isNotEmpty()) {
-                        return@runCatching body
+    companion object {
+        @Volatile private var instance: TripRepository?=null
+        fun get(context: Context)=instance?:synchronized(this) { instance?:TripRepository(context.applicationContext).also { instance=it } }
+    }
+    private fun json(value: Any)=gson.toJsonTree(value).asJsonObject
+    suspend fun active()=dao.getActiveTrip()
+    fun contacts(): List<TrustedContact> = runCatching { gson.fromJson<List<TrustedContact>>(prefs.getString("trusted_contacts","[]"),object:TypeToken<List<TrustedContact>>(){}.type) }.getOrDefault(emptyList())
+    fun saveContacts(contacts: List<TrustedContact>) {prefs.edit().putString("trusted_contacts",gson.toJson(contacts)).apply()}
+    fun demo()=prefs.getBoolean("demo_mode",true)
+    fun setDemo(enabled: Boolean){prefs.edit().putBoolean("demo_mode",enabled).apply()}
+    suspend fun enroll(){if(prefs.getString("session_token",null)==null){val s=api.enroll(mapOf("enrollment_code" to (prefs.getString("enrollment_code","")?:"")));prefs.edit().putString("session_token",s.token).apply()}}
+    suspend fun ready()=api.ready()
+    suspend fun search(query:String):List<Place>{enroll();return api.places(query).places}
+    suspend fun plan(origin:Place?,destination:Place?):TripPlan=withContext(Dispatchers.IO){
+        require(origin!=null&&destination!=null){"Choose both starting point and destination."}
+        enroll();val plan=api.plan(json(mapOf("mode" to if(demo())"REHEARSAL" else "LIVE","origin" to origin,"destination" to destination)))
+        dao.savePlan(SavedPlan(json=gson.toJson(plan)));plan
+    }
+    suspend fun recordedPlan():TripPlan=withContext(Dispatchers.IO){
+        val plan=context.assets.open("rehearsal_plan.json").bufferedReader().use{gson.fromJson(it,TripPlan::class.java)}
+        dao.savePlan(SavedPlan(json=gson.toJson(plan)));plan
+    }
+    suspend fun savedPlan():TripPlan?=dao.getPlan()?.let{runCatching{gson.fromJson(it.json,TripPlan::class.java)}.getOrNull()}
+    suspend fun start(plan:TripPlan,route:RouteOption):ActiveTrip=mutex.withLock {
+        check(dao.getActiveTrip()==null){"Finish your current journey before starting another."}
+        val trip=if(plan.mode=="REHEARSAL") ActiveTrip(tripId="LOCAL-${UUID.randomUUID()}",originLat=plan.origin.latitude,originLng=plan.origin.longitude,
+            destinationLat=plan.destination.latitude,destinationLng=plan.destination.longitude,destinationLabel=plan.destination.label,
+            selectedRouteId=route.routeId,routeJson=gson.toJson(route),mode=plan.mode,trustedContacts="[]")
+        else{enroll();val previous=prefs.getString("pending_start_plan",null);val key=if(previous==plan.id+":"+route.routeId)prefs.getString("pending_start_key",null)?:UUID.randomUUID().toString() else UUID.randomUUID().toString()
+            prefs.edit().putString("pending_start_plan",plan.id+":"+route.routeId).putString("pending_start_key",key).apply()
+            fromRemote(api.start(key,json(mapOf("plan_id" to plan.id,"route_id" to route.routeId,"contacts" to contacts())))).also{prefs.edit().remove("pending_start_plan").remove("pending_start_key").apply()}}
+        prefs.edit().remove("sync_error").putBoolean("replay_paused",false).apply();dao.upsert(trip);trip
+    }
+    private fun fromRemote(t:RemoteTrip,local:ActiveTrip?=null)=ActiveTrip(tripId=t.id,originLat=t.origin.latitude,originLng=t.origin.longitude,
+        destinationLat=t.destination.latitude,destinationLng=t.destination.longitude,destinationLabel=t.destination.label,selectedRouteId=t.route.routeId,
+        state=runCatching{TripState.valueOf(t.state)}.getOrDefault(TripState.ACTIVE),startedAtMs=t.startedAtMs,
+        lastLatitude=local?.lastLatitude?:t.lastLocation?.latitude?:t.origin.latitude,lastLongitude=local?.lastLongitude?:t.lastLocation?.longitude?:t.origin.longitude,
+        lastUpdateMs=local?.lastUpdateMs?:t.lastLocation?.timestampMs?:0,accuracyMeters=local?.accuracyMeters?:t.lastLocation?.accuracy?:0f,
+        checkInDeadlineMs=if(t.checkIn?.status=="PENDING")t.checkIn.deadlineMs else 0,checkInId=t.checkIn?.id?:"",trustedContacts=gson.toJson(t.contacts),
+        routeJson=gson.toJson(t.route),mode=t.mode,sosId=t.sosId?:"",endedAtMs=t.endedAtMs?:0,version=t.version,
+        progressIndex=local?.progressIndex?:0,lastCheckInAtMs=local?.lastCheckInAtMs?:0)
+    suspend fun updateLocation(fix:LocationFix,progress:Int)=mutex.withLock {
+        val t=active()?:return@withLock
+        if(fix.timestampMs<t.lastUpdateMs)return@withLock
+        dao.upsert(t.copy(lastLatitude=fix.latitude,lastLongitude=fix.longitude,lastUpdateMs=fix.timestampMs,accuracyMeters=fix.accuracy,progressIndex=progress))
+    }
+    suspend fun uploadLocation(fix:LocationFix){val t=active()?:return;if(t.isRehearsal)return
+        runCatching{enroll();api.location(t.tripId,fix)}.onSuccess{remote->mergeRemote(remote)}.onFailure{mutex.withLock{active()?.let{dao.upsert(it.copy(syncStatus="OFFLINE"))}}}
+    }
+    private suspend fun mergeRemote(remote:RemoteTrip)=mutex.withLock {
+        val local=dao.getTripById(remote.id)?:return@withLock
+        if(local.isEnded||remote.version<local.version)return@withLock
+        if(dao.queued().any{it.tripId==remote.id})return@withLock
+        dao.upsert(fromRemote(remote,local))
+    }
+    suspend fun checkIn(segmentId:String)=mutex.withLock {
+        val t=active()?:return@withLock
+        if(t.state!=TripState.ACTIVE||System.currentTimeMillis()-t.lastCheckInAtMs<60000)return@withLock
+        val eventId=UUID.randomUUID().toString()
+        val deadline=System.currentTimeMillis()+if(t.isRehearsal)20000 else 300000
+        dao.upsert(t.copy(state=TripState.CHECK_IN_PENDING,checkInId=eventId,checkInDeadlineMs=deadline,lastCheckInAtMs=System.currentTimeMillis(),syncStatus=if(t.isRehearsal)"SYNCED" else "PENDING"))
+        if(!t.isRehearsal)queue(OutboxEvent(eventId,t.tripId,"v1/trips/${t.tripId}/check-ins",gson.toJson(mapOf("event_id" to eventId,"segment_id" to segmentId,"deadline_ms" to deadline,
+            "location" to LocationFix(t.lastLatitude,t.lastLongitude,t.accuracyMeters,t.lastUpdateMs,t.lastUpdateMs)))))
+    }
+    suspend fun confirmSafe(){val expired=mutex.withLock{
+        val t=active()?:return@withLock false;if(t.state!=TripState.CHECK_IN_PENDING)return@withLock false
+        if(t.checkInDeadlineMs>0&&System.currentTimeMillis()>=t.checkInDeadlineMs)return@withLock true
+        dao.upsert(t.copy(state=TripState.ACTIVE,checkInDeadlineMs=0,syncStatus=if(t.isRehearsal)"SYNCED" else "PENDING"))
+        if(!t.isRehearsal)queue(OutboxEvent(UUID.randomUUID().toString(),t.tripId,"v1/trips/${t.tripId}/check-ins/${t.checkInId}/resolve",gson.toJson(mapOf("status" to "SAFE","resolved_at_ms" to System.currentTimeMillis()))))
+        false
+    };if(expired)createSos("TIMEOUT")}
+    suspend fun end(cancelled:Boolean=false)=mutex.withLock {
+        val t=active()?:return@withLock
+        dao.upsert(t.copy(state=if(cancelled)TripState.CANCELLED else TripState.COMPLETED,endedAtMs=System.currentTimeMillis(),checkInDeadlineMs=0,syncStatus=if(t.isRehearsal)"SYNCED" else "PENDING"))
+        if(t.sosId.isNotBlank())cancelIncidentLocal(t.sosId)
+        if(!t.isRehearsal){dao.queued().filter{it.tripId==t.tripId&&(it.path.contains("check-ins")||it.path=="v1/sos")}.forEach{dao.acknowledge(it.id)}
+            queue(OutboxEvent(UUID.randomUUID().toString(),t.tripId,"v1/trips/${t.tripId}/end",gson.toJson(mapOf("cancelled" to cancelled))))}
+    }
+    suspend fun createSos(trigger:String,standaloneLocation:LocationFix?=null):SosIncident {val result=mutex.withLock {
+        val t=active();if(t?.sosId?.isNotBlank()==true)incident(t.sosId,false)?.let{return@withLock it}
+        val mode=t?.mode?:if(demo())"REHEARSAL" else "LIVE"
+        if(t==null)prefs.getString("latest_sos",null)?.let{latest->incident(latest,false)?.takeIf{!it.cancelled&&it.mode==mode&&it.tripId==null&&it.status in listOf("REQUESTED","CONTACTING","PENDING","REQUEST_UNKNOWN")&&System.currentTimeMillis()-it.createdAtMs<300000}?.let{return@withLock it}}
+        val key=UUID.randomUUID().toString()
+        val loc=standaloneLocation?:t?.takeIf{it.lastUpdateMs>0}?.let{LocationFix(it.lastLatitude,it.lastLongitude,it.accuracyMeters,it.lastUpdateMs)}
+        val recipients=if(t!=null)runCatching{gson.fromJson<List<TrustedContact>>(t.trustedContacts,object:TypeToken<List<TrustedContact>>(){}.type)}.getOrDefault(emptyList())else contacts()
+        val incident=SosIncident(id="LOCAL-SOS-$key",tripId=t?.tripId,mode=mode,status=if(mode=="REHEARSAL")"REQUESTED" else "PENDING",
+            location=loc,contacts=if(mode=="REHEARSAL")listOf(TrustedContact("Aditi (demo)","+910000000001"),TrustedContact("Riya (demo)","+910000000002"))else recipients,
+            timeline=listOf(TimelineEvent(key,"REQUESTED",if(mode=="REHEARSAL")"Rehearsal alert. No real messages or calls." else "SOS saved on this phone; contacting available channels.",atMs=System.currentTimeMillis())),createdAtMs=System.currentTimeMillis())
+        dao.saveIncident(SavedIncident(incident.id,gson.toJson(incident)));prefs.edit().putString("latest_sos",incident.id).apply()
+        if(t!=null)dao.upsert(t.copy(state=TripState.SOS_ACTIVE,sosId=incident.id,checkInDeadlineMs=0))
+        if(mode!="REHEARSAL"){
+            val body=mutableMapOf<String,Any>("mode" to mode,"trigger" to trigger,"contacts" to recipients);if(t!=null)body["trip_id"]=t.tripId;if(loc!=null)body["location"]=loc
+            queue(OutboxEvent(key,t?.tripId?:"","v1/sos",gson.toJson(body),expiresAtMs=System.currentTimeMillis()+300000))
+        }
+        incident
+    }
+        com.sheshield.app.util.NotificationHelper.showSos(context,result)
+        if(result.mode!="REHEARSAL"&&prefs.getBoolean("device_sms",false))com.sheshield.app.util.SmsHelper.sendSosMessages(context,result.contacts.map{it.phone},result.location,result.id)
+        return result
+    }
+    suspend fun incident(id:String,refresh:Boolean=true):SosIncident? {
+        val saved=dao.getIncident(id)?:return null;var incident=gson.fromJson(saved.json,SosIncident::class.java)
+        if(incident.mode=="REHEARSAL"&&!incident.cancelled){
+            val elapsed=System.currentTimeMillis()-incident.createdAtMs
+            val states=listOf(0L to "Rehearsal SOS saved",2000L to "Calling Aditi (demo)",6000L to "Aditi: no answer",8000L to "Calling Riya (demo)",12000L to "Riya acknowledged the alert")
+            incident=incident.copy(status=if(elapsed>=12000)"ACKNOWLEDGED" else "CONTACTING",timeline=states.filter{elapsed>=it.first}.mapIndexed{i,p->TimelineEvent("demo-$i",if(i==4)"ACKNOWLEDGED" else "SIMULATED",p.second,atMs=incident.createdAtMs+p.first)})
+        }else if(refresh&&!id.startsWith("LOCAL"))runCatching{api.incident(id)}.onSuccess{incident=it}
+        dao.saveIncident(SavedIncident(incident.id,gson.toJson(incident)));return incident
+    }
+    private suspend fun cancelIncidentLocal(id:String){val old=incident(id,false)?:return;dao.saveIncident(SavedIncident(id,gson.toJson(old.copy(cancelled=true,status="CANCELLED",timeline=old.timeline+TimelineEvent(UUID.randomUUID().toString(),"CANCELLED","Future escalation cancelled. Sent messages cannot be recalled.",atMs=System.currentTimeMillis())))))}
+    suspend fun cancelSos()=mutex.withLock{
+        val id=prefs.getString("latest_sos",null)?:return@withLock;cancelIncidentLocal(id)
+        if(!id.startsWith("LOCAL"))queue(OutboxEvent(UUID.randomUUID().toString(),"","v1/sos/$id/cancel","{}"))
+        else dao.queued().filter{it.path=="v1/sos"&&"LOCAL-SOS-${it.id}"==id}.forEach{dao.acknowledge(it.id)}
+        active()?.let{dao.upsert(it.copy(state=TripState.ACTIVE,sosId="",checkInDeadlineMs=0,lastCheckInAtMs=System.currentTimeMillis()))}
+    }
+    suspend fun sync()=syncMutex.withLock {
+        while(true){val e=dao.queued().firstOrNull()?:break
+            if(e.expiresAtMs>0&&System.currentTimeMillis()>e.expiresAtMs){dao.acknowledge(e.id);val message="An unsent alert expired while offline. Use the call or SMS options if help is still needed.";repoError(message);markAlertFailure(e,"EXPIRED",message);continue}
+            try{enroll();val result=api.command(e.path,e.id,gson.fromJson(e.payload,JsonObject::class.java))
+                if(e.path=="v1/sos"){
+                    val incident=gson.fromJson(result,SosIncident::class.java)
+                    mutex.withLock{
+                        val local=dao.getIncident("LOCAL-SOS-${e.id}")?.let{gson.fromJson(it.json,SosIncident::class.java)}
+                        val ended=e.tripId.isNotBlank()&&dao.getTripById(e.tripId)?.isEnded==true
+                        if(local?.cancelled==true||ended){
+                            dao.saveIncident(SavedIncident(incident.id,gson.toJson(incident.copy(cancelled=true,status="CANCELLED"))))
+                            queue(OutboxEvent(UUID.randomUUID().toString(),e.tripId,"v1/sos/${incident.id}/cancel","{}"))
+                        }else{
+                            dao.saveIncident(SavedIncident(incident.id,gson.toJson(incident)))
+                            prefs.edit().putString("latest_sos",incident.id).putString("sms_incident:${incident.id}","LOCAL-SOS-${e.id}").apply()
+                            active()?.takeIf{it.tripId==e.tripId}?.let{dao.upsert(it.copy(sosId=incident.id))}
+                        }
                     }
                 }
-                // If backend returns empty routes or non-200, use demo data
-                buildDemoTripResponse(request)
-            }.recoverCatching { _ ->
-                // Network failure, timeout, JSON error → always show demo routes
-                buildDemoTripResponse(request)
+                dao.acknowledge(e.id)
+            }catch(error:Exception){
+                if(error is retrofit2.HttpException && error.code() in listOf(400,404,409,410,422)){dao.acknowledge(e.id);repoError(NetworkClient.message(error));markAlertFailure(e,"FAILED",NetworkClient.message(error));continue}
+                return@withLock
             }
         }
-
-    /** Confirm trip start with the selected route. Persists the active trip locally. */
-    suspend fun startTrip(
-        tripId: String,
-        selectedRoute: RouteOption,
-        origin: LatLng,
-        destination: LatLng,
-        destLabel: String,
-        contacts: List<TrustedContact>
-    ): Result<StartTripResponse> = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = StartTripRequest(
-                tripId = tripId,
-                routeId = selectedRoute.routeId,
-                trustedContacts = contacts
-            )
-            val resp = api.startTrip(request)
-            if (!resp.isSuccessful)
-                throw Exception("Start trip failed: ${resp.code()}")
-            val body = resp.body()!!
-
-            // Persist locally
-            dao.upsert(
-                ActiveTrip(
-                    tripId = tripId,
-                    sessionToken = body.sessionToken,
-                    originLat = origin.latitude,
-                    originLng = origin.longitude,
-                    destinationLat = destination.latitude,
-                    destinationLng = destination.longitude,
-                    destinationLabel = destLabel,
-                    selectedRouteId = selectedRoute.routeId,
-                    state = TripState.ACTIVE,
-                    trustedContacts = com.google.gson.Gson().toJson(contacts)
-                )
-            )
-            body
-        }.recoverCatching { e ->
-            // Fallback for offline / demo mode
-            val demoSessionToken = java.util.UUID.randomUUID().toString()
-            dao.upsert(
-                ActiveTrip(
-                    tripId = tripId,
-                    sessionToken = demoSessionToken,
-                    originLat = origin.latitude,
-                    originLng = origin.longitude,
-                    destinationLat = destination.latitude,
-                    destinationLng = destination.longitude,
-                    destinationLabel = destLabel,
-                    selectedRouteId = selectedRoute.routeId,
-                    state = TripState.ACTIVE,
-                    trustedContacts = com.google.gson.Gson().toJson(contacts)
-                )
-            )
-            StartTripResponse(
-                tripId = tripId,
-                sessionToken = demoSessionToken,
-                status = "ACTIVE"
-            )
-        }
+        active()?.takeUnless{it.isRehearsal}?.let{runCatching{api.trip(it.tripId)}.onSuccess{mergeRemote(it)}}
     }
-
-    suspend fun sendLocationUpdate(request: LocationUpdateRequest): Result<LocationUpdateResponse?> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val trip = dao.getTripById(request.tripId) ?: return@runCatching null
-                dao.updateLocation(request.tripId, request.latitude, request.longitude, request.timestampMs)
-
-                val resp = api.locationUpdate(request)
-                if (resp.isSuccessful) resp.body() else null
-            }
-        }
-
-    suspend fun checkIn(tripId: String, sessionToken: String, status: String): Result<CheckInResponse?> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val resp = api.checkIn(CheckInRequest(tripId, sessionToken, status))
-                if (resp.isSuccessful) {
-                    val body = resp.body()!!
-                    val newState = runCatching { TripState.valueOf(body.newState) }
-                        .getOrDefault(TripState.ACTIVE)
-                    dao.updateState(tripId, newState)
-                    body
-                } else null
-            }
-        }
-
-    suspend fun triggerSos(request: SosRequest): Result<SosResponse?> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                dao.updateState(request.tripId, TripState.SOS_ACTIVE)
-                val resp = api.triggerSos(request)
-                if (resp.isSuccessful) resp.body() else null
-            }
-        }
-
-    suspend fun endTrip(tripId: String, sessionToken: String) = withContext(Dispatchers.IO) {
-        runCatching {
-            api.endTrip(EndTripRequest(tripId, sessionToken))
-            dao.updateState(tripId, TripState.COMPLETED)
-        }
+    private suspend fun markAlertFailure(event:OutboxEvent,status:String,message:String){
+        if(event.path!="v1/sos")return
+        val local=incident("LOCAL-SOS-${event.id}",false)?:return
+        dao.saveIncident(SavedIncident(local.id,gson.toJson(local.copy(status=status,timeline=local.timeline+TimelineEvent(UUID.randomUUID().toString(),status,message,atMs=System.currentTimeMillis())))))
     }
-
-    suspend fun setCheckInPending(tripId: String, deadlineMs: Long) = withContext(Dispatchers.IO) {
-        dao.setCheckInState(tripId, TripState.CHECK_IN_PENDING, deadlineMs)
-    }
-
-    // ── Demo mode ─────────────────────────────────────────────────────────────
-
-    private fun buildDemoTripResponse(req: PlanTripRequest): PlanTripResponse {
-        // Hardcoded demo routes for Kolkata (near the sample coords in original workflow)
-        val demoTripId = "DEMO-" + System.currentTimeMillis()
-        return PlanTripResponse(
-            tripId = demoTripId,
-            routes = listOf(
-                RouteOptionDto(
-                    routeId = "$demoTripId-R1",
-                    label = "Recommended (Lower reported-risk)",
-                    durationSeconds = 1440,
-                    distanceMeters = 3200.0,
-                    riskLevel = "MEDIUM",
-                    riskScore = 0.42,
-                    riskSummary = "[DEMO] 3 reported incidents within 500m in last 90 days. Moderate foot traffic.",
-                    incidentCount = 3,
-                    geometry = listOf(
-                        listOf(req.originLng, req.originLat),
-                        listOf(req.originLng + 0.005, req.originLat + 0.003),
-                        listOf(req.destLng, req.destLat)
-                    ),
-                    isDemoData = true
-                ),
-                RouteOptionDto(
-                    routeId = "$demoTripId-R2",
-                    label = "Faster route (+2 min shorter) — Higher reported-risk",
-                    durationSeconds = 960,
-                    distanceMeters = 2100.0,
-                    riskLevel = "HIGH",
-                    riskScore = 0.78,
-                    riskSummary = "[DEMO] 7 reported incidents within 300m. Includes isolated stretch after 21:00.",
-                    incidentCount = 7,
-                    geometry = listOf(
-                        listOf(req.originLng, req.originLat),
-                        listOf(req.originLng + 0.008, req.originLat - 0.001),
-                        listOf(req.destLng, req.destLat)
-                    ),
-                    isDemoData = true
-                )
-            )
-        )
-    }
+    private fun repoError(message:String){prefs.edit().putString("sync_error",message).apply()}
+    suspend fun nextDemoCheckIn()=mutex.withLock{active()?.takeIf{it.isRehearsal&&it.state==TripState.ACTIVE}?.let{dao.upsert(it.copy(lastCheckInAtMs=0))}}
+    suspend fun share(trip:ActiveTrip):String {enroll();return api.share(trip.tripId).url}
+    suspend fun reroute(trip:ActiveTrip):RouteOption {enroll();return api.reroute(trip.tripId,json(mapOf("origin" to Place("Current location",trip.lastLatitude,trip.lastLongitude))))}
+    suspend fun acceptRoute(route:RouteOption){val t=active()?:return;api.command("v1/trips/${t.tripId}/route",UUID.randomUUID().toString(),json(mapOf("route" to route)));mutex.withLock{active()?.let{dao.upsert(it.copy(routeJson=gson.toJson(route),selectedRouteId=route.routeId,progressIndex=0))}}}
+    suspend fun deleteTrip(trip:ActiveTrip){if(!trip.isRehearsal)runCatching{api.deleteTrip(trip.tripId)};dao.delete(trip.tripId)}
 }

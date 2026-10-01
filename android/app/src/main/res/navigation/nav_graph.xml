@@ -61,4 +61,6 @@
         android:name="com.sheshield.app.ui.screens.ContactsFragment"
         android:label="@string/title_contacts" />
 
+<fragment android:id="@id/historyFragment" android:name="com.sheshield.app.ui.screens.HistoryFragment" android:label="Activity"/>
+<fragment android:id="@+id/settingsFragment" android:name="com.sheshield.app.ui.screens.SettingsFragment" android:label="Settings"/>
 </navigation>

@@ -1,0 +1,21 @@
+<resources>
+    <color name="purple_primary">#6554D9</color>
+    <color name="purple_dark">#4B3BB9</color>
+    <color name="purple_light">#8E82E8</color>
+    <color name="background">#111218</color>
+    <color name="surface">#1C1E27</color>
+    <color name="surface_variant">#292C37</color>
+    <color name="selection">#29243F</color>
+    <color name="separator">#333541</color>
+    <color name="on_surface">#F5F5F8</color>
+    <color name="on_surface_secondary">#B7B8C4</color>
+    <color name="risk_low">#5FC9B6</color>
+    <color name="risk_medium">#EABB65</color>
+    <color name="risk_high">#F18787</color>
+    <color name="risk_unknown">#A0A2B0</color>
+    <color name="sos_red">#C74343</color>
+    <color name="sos_red_dark">#A52F36</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+</resources>

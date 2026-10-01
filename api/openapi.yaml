@@ -1,0 +1,301 @@
+openapi: 3.0.3
+info:
+  title: SheShield API
+  version: 2.0.0
+  description: Installation-owned journey state and idempotent commands. Coordinates in route geometry are [longitude, latitude].
+servers:
+  - url: http://localhost:8787
+security:
+  - installation: []
+paths:
+  /health:
+    get:
+      security: []
+      responses:
+        '200': {description: API process health}
+  /ready:
+    get:
+      security: []
+      responses:
+        '200': {description: Configuration presence, not provider verification}
+  /v1/sessions:
+    post:
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enrollment_code: {type: string}
+      responses:
+        '200': {description: Random session_token for this installation}
+        '403': {$ref: '#/components/responses/Error'}
+  /v1/places:
+    get:
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 3, maxLength: 200}}
+      responses:
+        '200': {description: Explicit place candidates; no implicit destination selection}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/plans:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: {type: string, enum: [LIVE, REHEARSAL], description: Both modes calculate real routes for the selected endpoints; REHEARSAL simulates alerts}
+                recorded_scenario: {type: boolean, default: false, description: Explicitly load the fixed Kolkata fixture in REHEARSAL mode; otherwise origin and destination are required}
+                origin: {$ref: '#/components/schemas/Place'}
+                destination: {$ref: '#/components/schemas/Place'}
+      responses:
+        '200': {description: Owned expiring plan with one or more scored walking routes}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/trips:
+    get:
+      responses:
+        '200': {description: Installation-owned journeys, newest first}
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, route_id]
+              properties:
+                plan_id: {type: string}
+                route_id: {type: string}
+                contacts: {type: array, maxItems: 10, items: {$ref: '#/components/schemas/Contact'}}
+      responses:
+        '200': {description: Persistent trip using the exact selected plan route and endpoints}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/trips/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      responses:
+        '200': {description: Trip, current state, selected route, latest fix and check-in}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      responses:
+        '200': {description: Ended journey removed}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/trips/{id}/locations:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Fix'}
+      responses:
+        '200': {description: Updated trip; old sequence numbers are ignored}
+        '400': {$ref: '#/components/responses/Error'}
+  /v1/trips/{id}/check-ins:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id, segment_id]
+              properties:
+                event_id: {type: string}
+                segment_id: {type: string}
+                deadline_ms: {type: integer, format: int64}
+                location: {$ref: '#/components/schemas/Fix'}
+      responses:
+        '200': {description: Registered check-in and persistent deadline}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/trips/{id}/check-ins/{eventId}/resolve:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - {name: eventId, in: path, required: true, schema: {type: string}}
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: {type: string, enum: [SAFE, SOS]}
+                resolved_at_ms: {type: integer, format: int64, description: Original timely acknowledgement time for offline recovery}
+      responses:
+        '200': {description: Resolved trip; late SAFE cannot reverse an expired deadline}
+        '409': {$ref: '#/components/responses/Error'}
+  /v1/trips/{id}/end:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, properties: {cancelled: {type: boolean}}}
+      responses:
+        '200': {description: Completed/cancelled trip with pending escalation stopped}
+  /v1/trips/{id}/reroute:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, required: [origin], properties: {origin: {$ref: '#/components/schemas/Place'}}}
+      responses:
+        '200': {description: Stored route proposal, valid for five minutes}
+  /v1/trips/{id}/route:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, required: [route], properties: {route: {type: object, required: [route_revision], properties: {route_revision: {type: integer}}}}}
+      responses:
+        '200': {description: Accepted server-stored proposal; client scores and geometry are not trusted}
+  /v1/trips/{id}/share:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      responses:
+        '200': {description: Private read-only URL, expires in two hours}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/sos:
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trip_id: {type: string}
+                mode: {type: string, enum: [LIVE, REHEARSAL]}
+                trigger: {type: string, enum: [MANUAL, TIMEOUT]}
+                contacts: {type: array, items: {$ref: '#/components/schemas/Contact'}}
+                location: {$ref: '#/components/schemas/Fix'}
+      responses:
+        '200': {description: Trip-linked or standalone incident with truthful delivery timeline}
+  /v1/sos/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    get:
+      responses:
+        '200': {description: Incident, timeline and separate delivery attempts}
+  /v1/sos/{id}/cancel:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      parameters:
+        - {$ref: '#/components/parameters/Command'}
+      responses:
+        '200': {description: Future attempts cancelled; previously sent messages cannot be recalled}
+  /internal/attempts/{id}/claim:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      security: [{worker: []}]
+      responses:
+        '200': {description: Single-use claimed delivery instructions and signed-callback destinations}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/attempts/{id}/result:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      security: [{worker: []}]
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, properties: {call_sid: {type: string, nullable: true}, outcome_unknown: {type: boolean}}}
+      responses:
+        '200': {description: Provider request result; uncertain outcomes do not trigger duplicate calls}
+  /v1/provider/twilio/status:
+    post:
+      security: [{twilio: []}]
+      parameters:
+        - {name: attempt_id, in: query, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: {type: object, properties: {CallSid: {type: string}, CallStatus: {type: string}}}
+      responses:
+        '200': {description: Monotonic deduplicated callback processing}
+        '403': {$ref: '#/components/responses/Error'}
+  /v1/provider/twilio/ack:
+    post:
+      security: [{twilio: []}]
+      parameters:
+        - {name: attempt_id, in: query, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: {type: object, properties: {CallSid: {type: string}, Digits: {type: string}}}
+      responses:
+        '200': {description: TwiML response; digit 1 records acknowledgement}
+  /share/{token}/data:
+    parameters:
+      - {name: token, in: path, required: true, schema: {type: string}}
+    get:
+      security: []
+      responses:
+        '200': {description: Read-only journey state, route and last recorded location}
+        '410': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    installation: {type: http, scheme: bearer}
+    worker: {type: apiKey, in: header, name: X-Worker-Token}
+    twilio: {type: apiKey, in: header, name: X-Twilio-Signature, description: HMAC validated against the exact public URL and sorted form fields}
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: string}}
+    Command: {name: Idempotency-Key, in: header, required: true, schema: {type: string}, description: Stable unique key; reuse only for the identical command}
+  responses:
+    Error:
+      description: Structured error (code, message, retryable, request_id). Authenticated endpoints can also return 401/404; requests can be rate-limited with 429.
+      content:
+        application/json:
+          schema: {type: object, required: [code, message], properties: {code: {type: string}, message: {type: string}, retryable: {type: boolean}, request_id: {type: string}}}
+  schemas:
+    Place:
+      type: object
+      required: [label, latitude, longitude]
+      properties:
+        label: {type: string}
+        latitude: {type: number, minimum: -90, maximum: 90}
+        longitude: {type: number, minimum: -180, maximum: 180}
+    Contact:
+      type: object
+      required: [name, phone]
+      properties:
+        name: {type: string}
+        phone: {type: string, description: Unique international E.164 number}
+    Fix:
+      type: object
+      required: [latitude, longitude, timestamp_ms, accuracy_meters]
+      properties:
+        latitude: {type: number, minimum: -90, maximum: 90}
+        longitude: {type: number, minimum: -180, maximum: 180}
+        timestamp_ms: {type: integer, format: int64}
+        accuracy_meters: {type: number, minimum: 0}
+        sequence: {type: integer, format: int64, description: Required monotonic value for location heartbeat updates}

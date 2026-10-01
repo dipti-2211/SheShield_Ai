@@ -1,68 +1,49 @@
 package com.sheshield.app.util
 
-import android.content.Context
+import android.Manifest
+import android.app.Activity
+import android.app.PendingIntent
+import android.content.*
+import android.content.pm.PackageManager
 import android.telephony.SmsManager
-import android.util.Log
+import androidx.core.content.ContextCompat
+import com.sheshield.app.data.model.LocationFix
 
-/**
- * Helper for sending emergency SMS messages to trusted contacts.
- * Uses the device's native SMS stack — no internet required.
- */
 object SmsHelper {
-
-    private const val TAG = "SmsHelper"
-
-    /**
-     * Sends an SOS SMS to every trusted contact phone number.
-     *
-     * @param context   Application context
-     * @param phones    List of phone numbers in E.164 format (e.g. +919876543210)
-     * @param latitude  Current GPS latitude
-     * @param longitude Current GPS longitude
-     * @param appName   App name used in the message (default: SheShield)
-     */
-    @Suppress("DEPRECATION")
-    fun sendSosMessages(
-        context: Context,
-        phones: List<String>,
-        latitude: Double,
-        longitude: Double,
-        appName: String = "SheShield"
-    ) {
-        if (phones.isEmpty()) {
-            Log.w(TAG, "No trusted contacts to notify")
-            return
+    private fun key(incident:String,phone:String)="sms:$incident:$phone"
+    fun statuses(context:Context,incident:String,phones:List<String>):List<String>{
+        val prefs=context.getSharedPreferences("sms_status",Context.MODE_PRIVATE)
+        val source=context.getSharedPreferences("sheshield_prefs",Context.MODE_PRIVATE).getString("sms_incident:$incident",incident)?:incident
+        return phones.map { phone -> "$phone · ${prefs.getString(key(source,phone),"Not requested")}" }
+    }
+    fun sendSosMessages(context:Context,phones:List<String>,location:LocationFix?,incident:String){
+        val prefs=context.getSharedPreferences("sms_status",Context.MODE_PRIVATE)
+        if(ContextCompat.checkSelfPermission(context,Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){phones.forEach{prefs.edit().putString(key(incident,it),"Permission unavailable").apply()};return}
+        val manager=context.getSystemService(SmsManager::class.java)?:return
+        val message="SheShield SOS: I may need help. "+if(location!=null)"Last recorded location: https://maps.google.com/?q=${location.latitude},${location.longitude} at ${java.util.Date(location.timestampMs)}" else "My location is unavailable. Please contact me."
+        for(phone in phones){
+            val source=context.getSharedPreferences("sheshield_prefs",Context.MODE_PRIVATE).getString("sms_incident:$incident",incident)?:incident
+            val statusKey=key(source,phone);if(prefs.contains(statusKey))continue
+            try{
+                val parts=manager.divideMessage(message)
+                fun callbacks(delivery:Boolean)=ArrayList(parts.indices.map{index->
+                    PendingIntent.getBroadcast(context,(statusKey+index+delivery).hashCode(),Intent(context,SmsStatusReceiver::class.java)
+                        .setAction(if(delivery)"DELIVERED" else "SENT").putExtra("key",statusKey).putExtra("part",index).putExtra("count",parts.size),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                })
+                prefs.edit().putString(statusKey,"Requesting").apply()
+                manager.sendMultipartTextMessage(phone,null,parts,callbacks(false),callbacks(true))
+            }catch(e:Exception){prefs.edit().putString(statusKey,"Send failed").apply()}
         }
-
-        val mapsLink = "https://maps.google.com/?q=$latitude,$longitude"
-        val message = buildString {
-            append("🆘 SOS ALERT from $appName!\n")
-            append("I may be in danger. My last known location:\n")
-            append(mapsLink)
-            append("\n(Lat: ${String.format("%.5f", latitude)}, Lng: ${String.format("%.5f", longitude)})")
-        }
-
-        val smsManager: SmsManager = try {
-            // Android 12+ API
-            context.getSystemService(SmsManager::class.java)
-                ?: SmsManager.getDefault()
-        } catch (e: Exception) {
-            SmsManager.getDefault()
-        }
-
-        phones.forEach { phone ->
-            try {
-                // divideMessage handles messages > 160 chars automatically
-                val parts = smsManager.divideMessage(message)
-                if (parts.size == 1) {
-                    smsManager.sendTextMessage(phone, null, message, null, null)
-                } else {
-                    smsManager.sendMultipartTextMessage(phone, null, parts, null, null)
-                }
-                Log.i(TAG, "SOS SMS sent to $phone")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to send SOS SMS to $phone: ${e.message}")
-            }
-        }
+    }
+}
+class SmsStatusReceiver:BroadcastReceiver(){
+    override fun onReceive(context:Context,intent:Intent){
+        val key=intent.getStringExtra("key")?:return
+        val prefs=context.getSharedPreferences("sms_status",Context.MODE_PRIVATE)
+        if(resultCode!=Activity.RESULT_OK){prefs.edit().putString(key,"Send failed").apply();return}
+        val suffix=if(intent.action=="DELIVERED")"delivery" else "sent"
+        val part=intent.getIntExtra("part",0);val count=intent.getIntExtra("count",1)
+        prefs.edit().putBoolean("$key:$suffix:$part",true).apply()
+        if((0 until count).all{prefs.getBoolean("$key:$suffix:$it",false)})prefs.edit().putString(key,if(suffix=="delivery")"Delivered" else "Sent · delivery unconfirmed").apply()
     }
 }

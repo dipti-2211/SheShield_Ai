@@ -15,10 +15,19 @@ n8n/.env
 # Credentials
 **/*.secret
 **/.env
+api/node_modules/
+api/data/
+.tools/
+artifacts/*.apk
+artifacts/*.mp4
+android/.kotlin/
 
 # OS
 .DS_Store
 Thumbs.db
+__pycache__/
+*:Zone.Identifier
 
 # Keep original workflow as reference
 # SheShield.json is intentionally tracked (reference/backup)
+/.idea/

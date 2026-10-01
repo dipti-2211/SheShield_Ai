@@ -1,183 +1,85 @@
 package com.sheshield.app.data.model
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
+import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 
-// ── Enums ────────────────────────────────────────────────────────────────────
-
-enum class TripState {
-    IDLE,
-    PLANNING,
-    ACTIVE,
-    CHECK_IN_PENDING,
-    SOS_ACTIVE,
-    COMPLETED,
-    CANCELLED
+enum class TripState { IDLE, PLANNING, ACTIVE, CHECK_IN_PENDING, SOS_ACTIVE, COMPLETED, CANCELLED }
+enum class RiskLevel { LOW, MEDIUM, HIGH, UNKNOWN }
+data class LatLng(val latitude: Double, val longitude: Double)
+data class Place(val label: String, val latitude: Double, val longitude: Double, val id: String = "")
+data class TrustedContact(val name: String, val phone: String)
+data class RiskSegment(@SerializedName("segment_id") val id: String, @SerializedName("start_index") val startIndex: Int,
+    @SerializedName("end_index") val endIndex: Int, val score: Double, @SerializedName("risk_level") val level: String,
+    @SerializedName("distance_meters") val distanceMeters: Double)
+data class Evidence(val id: String, val category: String, @SerializedName("days_old") val daysOld: Int,
+    @SerializedName("distance_km") val distanceKm: Double, val source: String)
+data class RouteStep(val instruction: String = "Continue along the route", val distance: Double = 0.0,
+    @SerializedName("way_points") val wayPoints: List<Int> = emptyList())
+data class RouteOption(@SerializedName("route_id") val routeId: String, val label: String,
+    @SerializedName("duration_seconds") val durationSeconds: Int, @SerializedName("distance_meters") val distanceMeters: Double,
+    @SerializedName("risk_level") val riskLevel: String, @SerializedName("risk_score") val riskScore: Double,
+    @SerializedName("risk_summary") val riskSummary: String, @SerializedName("incident_count") val incidentCount: Int,
+    val geometry: List<List<Double>>, @SerializedName("is_demo_data") val isDemoData: Boolean = false,
+    val segments: List<RiskSegment> = emptyList(), val evidence: List<Evidence> = emptyList(),
+    val coverage: String = "UNAVAILABLE", @SerializedName("extra_minutes") val extraMinutes: Int = 0,
+    @SerializedName("evaluated_at") val evaluatedAt: String = "", @SerializedName("route_revision") val revision: Int = 1,
+    val steps: List<RouteStep> = emptyList(),
+    @SerializedName("origin_snap_meters") val originSnapMeters: Int = 0,
+    @SerializedName("destination_snap_meters") val destinationSnapMeters: Int = 0) {
+    val points get() = geometry.map { LatLng(it[1], it[0]) }
 }
-
-enum class RiskLevel {
-    LOW, MEDIUM, HIGH, UNKNOWN
-}
-
-// ── Location ──────────────────────────────────────────────────────────────────
-
-data class LatLng(
-    val latitude: Double,
-    val longitude: Double
-)
-
-// ── Route models ──────────────────────────────────────────────────────────────
-
-data class RouteOption(
-    val routeId: String,
-    val label: String,               // e.g. "Faster route"
-    val durationSeconds: Int,
-    val distanceMeters: Double,
-    val riskLevel: RiskLevel,
-    val riskScore: Double,           // 0.0 – 1.0
-    val riskSummary: String,         // human-readable explanation
-    val incidentCount: Int,          // # crime incidents near route
-    val geometry: List<LatLng>,      // decoded polyline
-    val isDemoData: Boolean = false  // true when using fixture data
-)
-
-data class PlanTripResponse(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("routes") val routes: List<RouteOptionDto>
-)
-
-data class RouteOptionDto(
-    @SerializedName("route_id") val routeId: String,
-    @SerializedName("label") val label: String,
-    @SerializedName("duration_seconds") val durationSeconds: Int,
-    @SerializedName("distance_meters") val distanceMeters: Double,
-    @SerializedName("risk_level") val riskLevel: String,
-    @SerializedName("risk_score") val riskScore: Double,
-    @SerializedName("risk_summary") val riskSummary: String,
-    @SerializedName("incident_count") val incidentCount: Int,
-    @SerializedName("geometry") val geometry: List<List<Double>>, // [[lng,lat],...]
-    @SerializedName("is_demo_data") val isDemoData: Boolean = false
-)
-
-fun RouteOptionDto.toDomain() = RouteOption(
-    routeId = routeId,
-    label = label,
-    durationSeconds = durationSeconds,
-    distanceMeters = distanceMeters,
-    riskLevel = runCatching { RiskLevel.valueOf(riskLevel) }.getOrDefault(RiskLevel.UNKNOWN),
-    riskScore = riskScore,
-    riskSummary = riskSummary,
-    incidentCount = incidentCount,
-    geometry = geometry.map { LatLng(it[1], it[0]) }, // ORS uses [lng, lat]
-    isDemoData = isDemoData
-)
-
-// ── Trip session (persisted to Room) ─────────────────────────────────────────
-
+data class TripPlan(val id: String, val mode: String, val origin: Place, val destination: Place,
+    val routes: List<RouteOption>, val attribution: String = "OpenStreetMap contributors",
+    @SerializedName("geometry_source") val geometrySource: String = "",
+    @SerializedName("expires_at_ms") val expiresAtMs: Long = 0)
+data class LocationFix(val latitude: Double, val longitude: Double,
+    @SerializedName("accuracy_meters") val accuracy: Float = 0f, @SerializedName("timestamp_ms") val timestampMs: Long = System.currentTimeMillis(),
+    val sequence: Long = 0)
+data class CheckInEvent(val id: String, @SerializedName("segment_id") val segmentId: String,
+    val status: String, @SerializedName("deadline_ms") val deadlineMs: Long)
+data class RemoteTrip(val id: String, val mode: String, val state: String, val origin: Place, val destination: Place,
+    val route: RouteOption, val contacts: List<TrustedContact> = emptyList(),
+    @SerializedName("last_location") val lastLocation: LocationFix? = null,
+    @SerializedName("check_in") val checkIn: CheckInEvent? = null, @SerializedName("sos_id") val sosId: String? = null,
+    @SerializedName("started_at_ms") val startedAtMs: Long, @SerializedName("ended_at_ms") val endedAtMs: Long? = null,
+    val version: Int = 0)
 @Entity(tableName = "active_trip")
-data class ActiveTrip(
-    @PrimaryKey val tripId: String,
-    val sessionToken: String,       // short-lived token for backend authentication
-    val originLat: Double,
-    val originLng: Double,
-    val destinationLat: Double,
-    val destinationLng: Double,
-    val destinationLabel: String,
-    val selectedRouteId: String,
-    val state: TripState = TripState.ACTIVE,
-    val startedAtMs: Long = System.currentTimeMillis(),
-    val lastLatitude: Double = originLat,
-    val lastLongitude: Double = originLng,
-    val lastUpdateMs: Long = System.currentTimeMillis(),
-    val checkInDeadlineMs: Long = 0L,  // nonzero when CHECK_IN_PENDING
-    val trustedContacts: String = "[]"  // JSON array of TrustedContact
-)
-
-// ── Trusted contacts ──────────────────────────────────────────────────────────
-
-data class TrustedContact(
-    val name: String,
-    val phone: String  // E.164 format
-)
-
-// ── API request/response models ───────────────────────────────────────────────
-
-data class PlanTripRequest(
-    @SerializedName("origin_lat") val originLat: Double,
-    @SerializedName("origin_lng") val originLng: Double,
-    @SerializedName("dest_lat") val destLat: Double,
-    @SerializedName("dest_lng") val destLng: Double,
-    @SerializedName("dest_label") val destLabel: String,
-    @SerializedName("trusted_contacts") val trustedContacts: List<TrustedContact>,
-    @SerializedName("demo_mode") val demoMode: Boolean = false
-)
-
-data class StartTripRequest(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("route_id") val routeId: String,
-    @SerializedName("trusted_contacts") val trustedContacts: List<TrustedContact>
-)
-
-data class StartTripResponse(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("session_token") val sessionToken: String,
-    @SerializedName("status") val status: String
-)
-
-data class LocationUpdateRequest(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("session_token") val sessionToken: String,
-    @SerializedName("latitude") val latitude: Double,
-    @SerializedName("longitude") val longitude: Double,
-    @SerializedName("accuracy_meters") val accuracyMeters: Float,
-    @SerializedName("timestamp_ms") val timestampMs: Long
-)
-
-data class LocationUpdateResponse(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("risk_event") val riskEvent: RiskEventDto?
-)
-
-data class RiskEventDto(
-    @SerializedName("type") val type: String,  // "CHECK_IN_REQUIRED" | "SAFE_ZONE"
-    @SerializedName("risk_level") val riskLevel: String,
-    @SerializedName("message") val message: String,
-    @SerializedName("check_in_deadline_ms") val checkInDeadlineMs: Long
-)
-
-data class CheckInRequest(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("session_token") val sessionToken: String,
-    @SerializedName("status") val status: String  // "SAFE" | "SOS"
-)
-
-data class CheckInResponse(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("new_state") val newState: String,
-    @SerializedName("message") val message: String
-)
-
-data class SosRequest(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("session_token") val sessionToken: String,
-    @SerializedName("latitude") val latitude: Double,
-    @SerializedName("longitude") val longitude: Double,
-    @SerializedName("trigger") val trigger: String  // "MANUAL" | "TIMEOUT"
-)
-
-data class SosResponse(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("status") val status: String,
-    @SerializedName("message") val message: String
-)
-
-data class EndTripRequest(
-    @SerializedName("trip_id") val tripId: String,
-    @SerializedName("session_token") val sessionToken: String
-)
-
-data class HealthResponse(
-    @SerializedName("status") val status: String,
-    @SerializedName("version") val version: String
-)
+data class ActiveTrip(@PrimaryKey val tripId: String, val sessionToken: String = "", val originLat: Double,
+    val originLng: Double, val destinationLat: Double, val destinationLng: Double, val destinationLabel: String,
+    val selectedRouteId: String, val state: TripState = TripState.ACTIVE,
+    val startedAtMs: Long = System.currentTimeMillis(), val lastLatitude: Double = originLat,
+    val lastLongitude: Double = originLng, val lastUpdateMs: Long = 0, val checkInDeadlineMs: Long = 0,
+    val trustedContacts: String = "[]", @ColumnInfo(defaultValue="''") val routeJson: String = "",
+    @ColumnInfo(defaultValue="'LIVE'") val mode: String = "LIVE",
+    @ColumnInfo(defaultValue="''") val checkInId: String = "", @ColumnInfo(defaultValue="'SYNCED'") val syncStatus: String = "SYNCED",
+    @ColumnInfo(defaultValue="0") val accuracyMeters: Float = 0f,
+    @ColumnInfo(defaultValue="''") val sosId: String = "", @ColumnInfo(defaultValue="0") val endedAtMs: Long = 0,
+    @ColumnInfo(defaultValue="0") val version: Int = 0, @ColumnInfo(defaultValue="0") val progressIndex: Int = 0,
+    @ColumnInfo(defaultValue="0") val lastCheckInAtMs: Long = 0) {
+    fun route(): RouteOption? = runCatching { Gson().fromJson(routeJson, RouteOption::class.java) }.getOrNull()
+    val isRehearsal get() = mode == "REHEARSAL"
+    val isEnded get() = state == TripState.COMPLETED || state == TripState.CANCELLED
+}
+@Entity(tableName = "trip_plans")
+data class SavedPlan(@PrimaryKey val id: String = "current", val json: String)
+@Entity(tableName = "outbox")
+data class OutboxEvent(@PrimaryKey val id: String, val tripId: String, val path: String, val payload: String,
+    val createdAtMs: Long = System.currentTimeMillis(), val expiresAtMs: Long = 0)
+@Entity(tableName = "sos_incidents")
+data class SavedIncident(@PrimaryKey val id: String, val json: String)
+data class TimelineEvent(val id: String, val status: String, val message: String, val contact: String? = null,
+    @SerializedName("at_ms") val atMs: Long)
+data class DeliveryAttempt(val id: String, val contact: TrustedContact, val status: String)
+data class SosIncident(val id: String, @SerializedName("trip_id") val tripId: String? = null,
+    val mode: String, val status: String, val cancelled: Boolean = false, val location: LocationFix? = null,
+    val contacts: List<TrustedContact> = emptyList(), val timeline: List<TimelineEvent> = emptyList(),
+    val attempts: List<DeliveryAttempt> = emptyList(), @SerializedName("created_at_ms") val createdAtMs: Long)
+data class SessionResponse(@SerializedName("session_token") val token: String)
+data class PlacesResponse(val places: List<Place>)
+data class TripsResponse(val trips: List<RemoteTrip>)
+data class ReadyResponse(val status: String, val routing: Boolean, @SerializedName("risk_data") val riskData: Boolean,
+    val n8n: Boolean, val callbacks: Boolean, @SerializedName("live_alerts") val liveAlerts: Boolean)
+data class ShareResponse(val url: String)

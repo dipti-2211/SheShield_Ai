@@ -1,218 +1,113 @@
 package com.sheshield.app.service
 
-import android.app.*
 import android.content.Intent
-import android.location.Location
-import android.os.*
-import android.util.Log
+import android.os.Looper
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.*
 import com.sheshield.app.data.model.*
-import com.sheshield.app.data.network.NetworkClient
 import com.sheshield.app.data.repository.TripRepository
-import com.sheshield.app.ui.MainActivity
-import com.sheshield.app.util.NotificationHelper
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import com.sheshield.app.util.*
+import kotlinx.coroutines.*
 
-/**
- * Foreground service that runs while a trip is active.
- *
- * Responsibilities:
- * - Acquire GPS updates via FusedLocationProviderClient
- * - Send periodic heartbeats to the backend
- * - Handle risk events returned by the backend
- * - Trigger check-in notifications
- * - Manage the ongoing notification
- *
- * The service runs as a foreground service (foregroundServiceType=location)
- * so it can continue receiving location updates when the app is backgrounded.
- * This is the correct Android approach for active-trip tracking.
- */
-class TripTrackingService : LifecycleService() {
-
+class TripTrackingService:LifecycleService() {
     companion object {
-        const val TAG = "TripTrackingService"
-        const val ACTION_START = "com.sheshield.app.ACTION_START_TRACKING"
-        const val ACTION_STOP  = "com.sheshield.app.ACTION_STOP_TRACKING"
-        const val ACTION_CHECK_IN_SAFE = "com.sheshield.app.ACTION_CHECK_IN_SAFE"
-        const val ACTION_SOS          = "com.sheshield.app.ACTION_SOS"
-        const val EXTRA_TRIP_ID       = "trip_id"
-        const val EXTRA_SESSION_TOKEN = "session_token"
-
-        // Location update interval: 30s while active, 60s fallback
-        private const val UPDATE_INTERVAL_MS   = 30_000L
-        private const val FASTEST_INTERVAL_MS  = 15_000L
-        private const val MAX_WAIT_TIME_MS     = 60_000L
+        const val ACTION_START="com.sheshield.app.START"
+        const val ACTION_STOP="com.sheshield.app.STOP"
+        const val ACTION_SAFE="com.sheshield.app.SAFE"
+        const val ACTION_SOS="com.sheshield.app.SOS"
+        const val ACTION_SKIP="com.sheshield.app.SKIP"
+        const val ACTION_PAUSE="com.sheshield.app.PAUSE"
+        const val EXTRA_TRIP_ID="trip_id"
+        const val EXTRA_EVENT_ID="event_id"
     }
-
-    private lateinit var fusedLocation: FusedLocationProviderClient
-    private lateinit var repo: TripRepository
-
-    private var tripId: String? = null
-    private var sessionToken: String? = null
-
-    private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { handleLocationUpdate(it) }
-        }
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        fusedLocation = LocationServices.getFusedLocationProviderClient(this)
-        repo = TripRepository(applicationContext)
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
-        when (intent?.action) {
-            ACTION_START -> {
-                tripId = intent.getStringExtra(EXTRA_TRIP_ID)
-                sessionToken = intent.getStringExtra(EXTRA_SESSION_TOKEN)
-                if (tripId != null && sessionToken != null) {
-                    startForegroundWithNotification()
-                    startLocationUpdates()
-                } else {
-                    stopSelf()
-                }
+    private val repo by lazy{TripRepository.get(this)}
+    private val fused by lazy{LocationServices.getFusedLocationProviderClient(this)}
+    private var loop:Job?=null
+    private var replayIndex=0
+    private var lastHeartbeat=0L
+    private var arrivalSince=0L
+    private var candidate=""
+    private var consecutive=0
+    private var callbackRegistered=false
+    private val locationCallback=object:LocationCallback(){override fun onLocationResult(result:LocationResult){result.lastLocation?.let{loc->lifecycleScope.launch{handleFix(LocationFix(loc.latitude,loc.longitude,loc.accuracy,loc.time,loc.time))}}}}
+    override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
+        super.onStartCommand(intent,flags,startId)
+        lifecycleScope.launch{
+            val trip=repo.active()
+            when(intent?.action){
+                ACTION_STOP->{if(trip?.tripId!=intent.getStringExtra(EXTRA_TRIP_ID))return@launch;repo.end();NotificationHelper.cancelCheckInNotification(this@TripTrackingService);stopTracking();lifecycleScope.launch(Dispatchers.IO){repo.sync()}}
+                ACTION_SAFE->{if(trip!=null&&trip.tripId==intent.getStringExtra(EXTRA_TRIP_ID)&&trip.checkInId==intent.getStringExtra(EXTRA_EVENT_ID)){repo.confirmSafe();NotificationHelper.cancelCheckInNotification(this@TripTrackingService);repo.sync()}}
+                ACTION_SOS->{if(intent.hasExtra(EXTRA_TRIP_ID)&&trip?.tripId!=intent.getStringExtra(EXTRA_TRIP_ID))return@launch;triggerSos("MANUAL")}
+                ACTION_SKIP->{val route=trip?.takeIf{it.isRehearsal}?.route();val segment=route?.segments?.firstOrNull{it.level in listOf("MEDIUM","HIGH")};if(segment!=null){repo.nextDemoCheckIn();replayIndex=segment.startIndex+1;candidate=segment.level;consecutive=1}}
+                ACTION_PAUSE->repo.prefs.edit().putBoolean("replay_paused",!repo.prefs.getBoolean("replay_paused",false)).apply()
+                else->if(trip!=null)startTracking(trip)else stopSelf()
             }
-            ACTION_STOP -> stopTracking()
-            ACTION_CHECK_IN_SAFE -> handleCheckIn("SAFE")
-            ACTION_SOS -> handleSosAction()
         }
         return START_STICKY
     }
-
-    private fun startForegroundWithNotification() {
-        val notification = NotificationHelper.buildTripActiveNotification(this, tripId ?: "")
-        startForeground(NotificationHelper.NOTIF_TRIP_ACTIVE_ID, notification)
-    }
-
-    private fun startLocationUpdates() {
-        val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, UPDATE_INTERVAL_MS)
-            .setMinUpdateIntervalMillis(FASTEST_INTERVAL_MS)
-            .setMaxUpdateDelayMillis(MAX_WAIT_TIME_MS)
-            .build()
-        try {
-            fusedLocation.requestLocationUpdates(req, locationCallback, mainLooper)
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Location permission not granted", e)
-            stopSelf()
+    private fun startTracking(trip:ActiveTrip){
+        startForeground(NotificationHelper.NOTIF_TRIP_ACTIVE_ID,NotificationHelper.tripNotification(this,trip,"Monitoring your journey"))
+        replayIndex=trip.progressIndex
+        repo.prefs.edit().putInt("off_route_fixes",0).putBoolean("arrival_ready",false).apply()
+        if(!trip.isRehearsal&&!callbackRegistered){
+            if(!LocationProvider(this).permitted()){repo.prefs.edit().putString("tracking_problem","Location permission is unavailable").apply();stopSelf();return}
+            try{fused.requestLocationUpdates(LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY,5000).setMinUpdateIntervalMillis(3000).build(),locationCallback,Looper.getMainLooper());callbackRegistered=true}
+            catch(e:SecurityException){repo.prefs.edit().putString("tracking_problem","Location access was revoked").apply();stopSelf();return}
         }
-    }
-
-    private fun handleLocationUpdate(loc: Location) {
-        val tid = tripId ?: return
-        val token = sessionToken ?: return
-
-        if (loc.accuracy > 50f) {
-            Log.w(TAG, "Low GPS accuracy: ${loc.accuracy}m – skipping heartbeat")
-            return
-        }
-
-        lifecycleScope.launch {
-            val request = com.sheshield.app.data.model.LocationUpdateRequest(
-                tripId = tid,
-                sessionToken = token,
-                latitude = loc.latitude,
-                longitude = loc.longitude,
-                accuracyMeters = loc.accuracy,
-                timestampMs = loc.time
-            )
-            val result = repo.sendLocationUpdate(request)
-            result.onSuccess { response ->
-                response?.riskEvent?.let { handleRiskEvent(it) }
-            }.onFailure { e ->
-                Log.w(TAG, "Location update failed: ${e.message}")
-                // Do NOT crash or stop – network loss is expected. Retry on next interval.
-            }
-        }
-    }
-
-    private fun handleRiskEvent(event: com.sheshield.app.data.model.RiskEventDto) {
-        val tid = tripId ?: return
-        when (event.type) {
-            "CHECK_IN_REQUIRED" -> {
-                lifecycleScope.launch {
-                    repo.setCheckInPending(tid, event.checkInDeadlineMs)
+        repo.prefs.edit().remove("tracking_problem").apply()
+        if(loop?.isActive==true)return
+        loop=lifecycleScope.launch{
+            var ticks=0
+            while(isActive){
+                val current=repo.active()?:break
+                if(current.isRehearsal&&ticks%2==0&&current.state==TripState.ACTIVE&&!repo.prefs.getBoolean("replay_paused",false)){
+                    val points=current.route()?.points.orEmpty()
+                    if(points.isNotEmpty()){val p=points[replayIndex.coerceIn(0,points.lastIndex)];handleFix(LocationFix(p.latitude,p.longitude,5f,System.currentTimeMillis(),System.currentTimeMillis()));if(replayIndex<points.lastIndex)replayIndex=(replayIndex+2).coerceAtMost(points.lastIndex)}
                 }
-                NotificationHelper.showCheckInNotification(this, tid, event.message, event.checkInDeadlineMs)
-            }
-            "SAFE_ZONE" -> {
-                NotificationHelper.cancelCheckInNotification(this)
-                NotificationHelper.updateTripActiveNotification(this, tid, "Monitoring – ${event.message}")
-            }
-        }
-    }
-
-    private fun handleCheckIn(status: String) {
-        val tid = tripId ?: return
-        val token = sessionToken ?: return
-        lifecycleScope.launch {
-            repo.checkIn(tid, token, status)
-            NotificationHelper.cancelCheckInNotification(this@TripTrackingService)
-        }
-    }
-
-    private fun handleSosAction() {
-        val tid = tripId ?: return
-        val token = sessionToken ?: return
-        lifecycleScope.launch {
-            try {
-                val loc = fusedLocation.lastLocation.await()
-                val lat = loc?.latitude ?: 0.0
-                val lng = loc?.longitude ?: 0.0
-
-                // 1. Notify backend
-                repo.triggerSos(
-                    com.sheshield.app.data.model.SosRequest(
-                        tripId = tid,
-                        sessionToken = token,
-                        latitude = lat,
-                        longitude = lng,
-                        trigger = "MANUAL"
-                    )
-                )
-
-                // 2. Send SMS to all trusted contacts immediately
-                val trip = repo.getActiveTrip()
-                if (trip != null && trip.trustedContacts.isNotBlank() && trip.trustedContacts != "[]") {
-                    try {
-                        val contacts = com.google.gson.Gson().fromJson(
-                            trip.trustedContacts,
-                            object : com.google.gson.reflect.TypeToken<List<com.sheshield.app.data.model.TrustedContact>>() {}.type
-                        ) as List<com.sheshield.app.data.model.TrustedContact>
-                        val phones = contacts.map { it.phone }
-                        if (phones.isNotEmpty()) {
-                            com.sheshield.app.util.SmsHelper.sendSosMessages(
-                                context = applicationContext,
-                                phones = phones,
-                                latitude = lat,
-                                longitude = lng
-                            )
-                            Log.i(TAG, "SOS SMS sent to ${phones.size} contact(s)")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to parse/send SMS to contacts: ${e.message}")
-                    }
+                if(current.state==TripState.CHECK_IN_PENDING){
+                    NotificationHelper.showCheckInNotification(this@TripTrackingService,current)
+                    if(current.checkInDeadlineMs>0&&System.currentTimeMillis()>=current.checkInDeadlineMs)triggerSos("TIMEOUT")
                 }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "SOS send failed: ${e.message}")
+                if(ticks%15==0)launch(Dispatchers.IO){repo.sync()}
+                if(ticks%5==0)NotificationHelper.updateTrip(this@TripTrackingService,current,status(current))
+                ticks++;delay(1000)
             }
+            stopTracking()
         }
     }
-
-    private fun stopTracking() {
-        fusedLocation.removeLocationUpdates(locationCallback)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+    private fun status(t:ActiveTrip)=when{
+        t.state==TripState.SOS_ACTIVE->"SOS active · open for contact updates"
+        t.state==TripState.CHECK_IN_PENDING->"Safety check-in pending"
+        t.lastUpdateMs==0L||System.currentTimeMillis()-t.lastUpdateMs>60000->"Waiting for a fresh location"
+        t.syncStatus=="OFFLINE"->"Local monitoring · server connection unavailable"
+        t.isRehearsal->"Rehearsal · simulated location"
+        else->"Monitoring your journey"
     }
-
-    override fun onDestroy() {
-        fusedLocation.removeLocationUpdates(locationCallback)
-        super.onDestroy()
+    private suspend fun handleFix(fix:LocationFix){
+        val trip=repo.active()?:return;val route=trip.route()?:return
+        if(!TripMath.validFix(fix)){repo.prefs.edit().putString("tracking_problem","GPS is uncertain; segment alerts paused").apply();return}
+        repo.prefs.edit().remove("tracking_problem").apply()
+        val projection=TripMath.project(LatLng(fix.latitude,fix.longitude),route)
+        repo.updateLocation(fix,projection.index)
+        val segment=route.segments.firstOrNull{it.startIndex==projection.index&&it.level in listOf("MEDIUM","HIGH")}
+        if(segment!=null&&projection.distanceMeters<50&&fix.accuracy<=50){
+            if(candidate==segment.level)consecutive++ else{candidate=segment.level;consecutive=1}
+            if(consecutive>=2&&trip.state==TripState.ACTIVE){repo.checkIn(segment.id);repo.active()?.takeIf{it.state==TripState.CHECK_IN_PENDING}?.let{NotificationHelper.showCheckInNotification(this,it)}}
+        }else{candidate="";consecutive=0}
+        val off=repo.prefs.getInt("off_route_fixes",0)
+        repo.prefs.edit().putInt("off_route_fixes",if(projection.distanceMeters>60)off+1 else 0).apply()
+        val near=TripMath.distance(LatLng(fix.latitude,fix.longitude),LatLng(trip.destinationLat,trip.destinationLng))<40
+        if(near){if(arrivalSince==0L)arrivalSince=System.currentTimeMillis()}else arrivalSince=0L
+        repo.prefs.edit().putBoolean("arrival_ready",arrivalSince>0&&System.currentTimeMillis()-arrivalSince>=15000).apply()
+        if(!trip.isRehearsal&&System.currentTimeMillis()-lastHeartbeat>30000){lastHeartbeat=System.currentTimeMillis();lifecycleScope.launch(Dispatchers.IO){repo.uploadLocation(fix)}}
     }
+    private suspend fun triggerSos(trigger:String){
+        val incident=repo.createSos(trigger)
+        NotificationHelper.cancelCheckInNotification(this)
+        NotificationHelper.showSos(this,incident)
+        lifecycleScope.launch(Dispatchers.IO){repo.sync()}
+    }
+    private fun stopTracking(){loop?.cancel();loop=null;if(callbackRegistered)fused.removeLocationUpdates(locationCallback);callbackRegistered=false;stopForeground(STOP_FOREGROUND_REMOVE);stopSelf()}
+    override fun onDestroy(){loop?.cancel();if(callbackRegistered)fused.removeLocationUpdates(locationCallback);super.onDestroy()}
 }

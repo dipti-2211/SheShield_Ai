@@ -1,0 +1,103 @@
+# SheShield 2
+
+A native Android journey companion focused on Kolkata: compare real walking routes, understand available incident evidence, monitor a journey, and request help from a trusted circle.
+
+**Start here:** open `android/` in Android Studio. The current debug APK is `artifacts/SheShield-debug.apk`. Custom routes use OpenRouteService in both practice and live modes. The explicit recorded Kolkata demo works without the API; map tiles still need internet unless already cached. Contact calls use your existing n8n Cloud account.
+
+## What changed
+
+- Light and dark native screens with rounded cards, spacious typography, three-tab navigation, route selection, journey monitoring, a circle editor, history, settings, onboarding, and SOS updates.
+- Real ORS `foot-walking/geojson` geometry, alternatives, distances and turn instructions. Route failures are visible; the app never substitutes a straight line or invents a successful trip.
+- Search and select both endpoints, use GPS for the start, or long-press the map to place pins. Changing either endpoint invalidates the previous plan. Requested pins remain visible when the provider snaps to nearby walking paths; access distances over 30 m are explained, and snapping over 200 m is rejected.
+- Landmark search is bounded to Greater Kolkata. ORS results must match the requested place terms; missing landmarks use bounded Nominatim search rather than unrelated museums or other cities. [Pelias search boundaries](https://github.com/pelias/documentation/blob/master/search.md), [Nominatim bounded search](https://nominatim.org/release-docs/latest/api/Search/).
+- Immutable selected endpoints and geometry stored locally. The map draws persistent layers, distinguishes alternatives/elevated segments, follows only when requested, and allows recentering.
+- A location foreground service owns check-in deadlines. Two accurate fixes on an elevated segment trigger a check-in; a five-minute live deadline or twenty-second rehearsal deadline can escalate.
+- Local SQLite/Room persistence, stable command IDs, an offline outbox, background sync, standalone SOS, ordered contacts, signed provider callbacks and explicit delivery states.
+- A recorded Kolkata walking rehearsal using production scoring and clearly fictional incident evidence. It never sends real calls or messages.
+
+## Run the local API
+
+Use Node **24.21.0 or newer in the Node 24 line**; the API uses built-in SQLite. On this WSL workspace a portable runtime is already available at `/tmp/sheshield-tools/node/bin/node`.
+
+```bash
+python3 scripts/configure_local.py
+cd api
+npm ci
+npm start
+```
+
+Alternatively, in this configured workspace: `scripts/run_api.sh`. Dependencies are already installed. The API listens on port **8787**. The default database is `api/data/sheshield.sqlite`; keep it to preserve sessions and pending alerts. Service keys belong in ignored `api/.env`. The configuration helper can copy an ORS key from ignored `android/local.properties`; the Android build does not read that key.
+
+`GET /health` checks the process. `GET /ready` reports configuration presence; it does **not** certify a provider credential or deployed workflow. `node --env-file=api/.env scripts/verify_live.mjs` from the repository root checks actual Kolkata place search and walking routes without requesting alerts.
+
+Docker is also supported:
+
+```bash
+docker compose up --build api
+```
+
+This runs the API only. n8n remains in the Cloud. The data volume maps `api/data` to `/data`; the container overrides `DATABASE_PATH` to `/data/sheshield.sqlite`.
+
+## Connect Android
+
+Open `android/` in Android Studio (`C:\Program Files\Android\Android Studio`). Let Studio manage `sdk.dir` in `local.properties`.
+
+- Emulator API URL: `http://10.0.2.2:8787` when the API is reachable on the Windows host.
+- Physical phone: use the API's public HTTPS tunnel URL, or your laptop's reachable LAN address for debug builds.
+- Enter the API URL and the `ENROLLMENT_CODE` from `api/.env` under Settings → Demo connection. Read the code locally; do not paste it into chat or commit it.
+- End a journey before changing its API connection or mode.
+- Location access is required to run the location foreground service. Rehearsal uses simulated positions. Notifications make background check-ins visible. Android force-stop stops local monitoring until you reopen the app; the server can still expire an already registered live deadline.
+- Device SMS is optional, needs an SMS-capable SIM and permission, and reports separate request/sent/delivered states. The emulator cannot verify actual carrier delivery.
+
+For the isolated WSL build already configured here:
+
+```bash
+scripts/build_android.sh :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+The helper builds in `/tmp/sheshield-android-build` so it does not rewrite Studio's Windows SDK path, then copies the APK to `artifacts/`. With a regular Linux SDK/JDK, set `SHESHIELD_SDK` and `JAVA_HOME` to your installations. On Windows use Studio or `android\gradlew.bat`.
+
+## Connect n8n Cloud and Twilio
+
+Follow **[n8n/IMPORT_CHECKLIST.md](n8n/IMPORT_CHECKLIST.md)**. Import workflow **04 only**. Workflows 01–03 are superseded. The API owns journey and delivery state; n8n acts as a delivery worker.
+
+Start a public HTTPS tunnel while the API is running:
+
+```bash
+scripts/run_tunnel.sh
+python3 scripts/configure_local.py --public-url https://YOUR-TUNNEL.trycloudflare.com
+```
+
+Restart the API after changing `.env`. Set the same URL in the workflow Configuration node. Quick tunnels are temporary and their URL changes on restart; use a stable named tunnel/deployment for a lasting installation. [Cloudflare Quick Tunnel documentation](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+
+Configure the Twilio credentials in n8n, the matching `TWILIO_AUTH_TOKEN` locally for signature validation, and the shared Header Auth credential. `LIVE_ALERTS_ENABLED=false` is the default. To test real calls, add consenting recipients to `TEST_RECIPIENT_ALLOWLIST`, then enable live alerts and restart the API. Twilio trial accounts may require verified recipients.
+
+A ringing or completed call does not imply acknowledgement. The recipient presses **1** to acknowledge. Duplicate jobs cannot claim the same attempt. Uncertain provider requests are not blindly repeated. Cancellation stops future escalation; it cannot recall a call or message already sent.
+
+## Incident data and exposure
+
+Live data is **unknown** until a real, dated geospatial incident dataset with explicit source and coverage is supplied. Fictional fixtures are rejected in live mode. A low exposure index is a comparison result, not a guarantee or a probability of crime.
+
+Read **[docs/INCIDENT_DATA.md](docs/INCIDENT_DATA.md)** for the dataset format and optional Pinecone exporter. Pinecone embedding similarity is not a geographic risk score. The deterministic model measures each incident's distance from every route segment, applies category/recency weighting, and averages exposure by segment distance. The app's explanation displays the actual supporting evidence and coverage.
+
+## Demonstrate the product
+
+1. Open Plan your journey, then select **“Open the recorded Kolkata demo”**. This explicitly loads the fixed Esplanade → Victoria Memorial scenario.
+2. Compare the three recorded walking routes and open “Why this route?” to inspect the fictional evidence and the time tradeoff.
+3. Start the journey and use recenter/pan to see the simulated position.
+4. “Next check-in” advances to an elevated segment. Press “I'm safe” to continue.
+5. Advance to another check-in and background the app. After twenty seconds, open the SOS notification to see the simulated first contact unanswered and the second acknowledged.
+6. Cancel future escalation, end the journey, then view Activity. Standalone SOS is also available on the home screen.
+
+The recorded demo has no dependency on API availability or live incident credentials. For custom journeys, choose **From** and **To** and press **Find walking routes**: practice mode calculates real routes while simulating positions and alerts; live mode uses device GPS and configured delivery services. Basemap tiles are network dependent and are not bulk downloaded.
+
+## Verification
+
+```bash
+cd api
+npm test
+```
+
+Android checks: `:app:assembleDebug :app:testDebugUnitTest :app:lintDebug`. Device migration test: `:app:assembleDebugAndroidTest`, then run `DatabaseRecoveryTest` using Android Studio or ADB instrumentation. Tests use a separate temporary database and preserve the app's real contacts/history.
+
+See **[docs/VALIDATION.md](docs/VALIDATION.md)** for observed results and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).
