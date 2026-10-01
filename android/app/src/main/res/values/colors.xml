@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand -->
+    <color name="purple_primary">#7C3AED</color>
+    <color name="purple_dark">#5B21B6</color>
+    <color name="purple_light">#A78BFA</color>
+
+    <!-- Background system -->
+    <color name="background">#0F0A1E</color>
+    <color name="surface">#1C1430</color>
+    <color name="surface_variant">#2D2047</color>
+    <color name="on_surface">#F5F0FF</color>
+    <color name="on_surface_secondary">#A89EC9</color>
+
+    <!-- Risk colours -->
+    <color name="risk_low">#22C55E</color>
+    <color name="risk_medium">#F59E0B</color>
+    <color name="risk_high">#EF4444</color>
+    <color name="risk_unknown">#6B7280</color>
+
+    <!-- SOS accent -->
+    <color name="sos_red">#DC2626</color>
+    <color name="sos_red_dark">#991B1B</color>
+
+    <!-- Standard Material -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+</resources>

@@ -1,0 +1,36 @@
+# ─── SheShield n8n Environment Variables ─────────────────────────────────────
+# Copy this to a .env file or configure as n8n variables/credentials.
+# NEVER commit actual values.
+
+# ── Twilio ──────────────────────────────────────────────────────────────────
+# Configure via n8n Credentials UI (Twilio account type) - do NOT set here
+# TWILIO_ACCOUNT_SID=ACxxxxxxxxxx
+# TWILIO_AUTH_TOKEN=your_auth_token
+
+# Twilio FROM number (your purchased/verified Twilio number, E.164 format)
+TWILIO_FROM_NUMBER=+1XXXXXXXXXX
+
+# ── OpenRouteService ────────────────────────────────────────────────────────
+# Free API key from https://openrouteservice.org/dev/#/signup
+# Set as n8n variable: ORS_API_KEY
+ORS_API_KEY=your_ors_key_here
+
+# ── Pinecone ────────────────────────────────────────────────────────────────
+# Configure via n8n Credentials UI (Pinecone account type)
+# Index name: hackolution (or your index name)
+# PINECONE_API_KEY=your_pinecone_key
+
+# ── n8n instance ────────────────────────────────────────────────────────────
+# Base URL for Twilio status callbacks - must be publicly reachable
+# Use ngrok/cloudflared for local dev: https://your-tunnel.ngrok.io
+N8N_WEBHOOK_BASE_URL=https://your-tunnel.ngrok.io
+
+# ── Google Gemini (for LLM explanation node, optional) ─────────────────────
+# Configure via n8n Credentials UI (Google Gemini API type)
+# GOOGLE_GEMINI_API_KEY=your_gemini_key
+
+# ── Security ────────────────────────────────────────────────────────────────
+# ⚠️  The original SheShield.json contains an exposed Telegram bot token.
+#     That token has been removed from all new workflows.
+#     Rotate the Telegram bot token if it was used in any public-facing context.
+#     Rotate the Twilio credentials from the original workflow (+17077541636).

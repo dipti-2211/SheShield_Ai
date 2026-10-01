@@ -1,0 +1,11 @@
+# Copy this to local.properties and fill in your values.
+# NEVER commit local.properties to git.
+
+# Path to Android SDK - set by Android Studio automatically
+sdk.dir=/path/to/Android/Sdk
+
+# OpenRouteService API key (free at openrouteservice.org)
+ORS_API_KEY=your_ors_api_key_here
+
+# n8n local URL (default: localhost via ADB reverse tunnel)
+BACKEND_BASE_URL=http://10.0.2.2:5678
