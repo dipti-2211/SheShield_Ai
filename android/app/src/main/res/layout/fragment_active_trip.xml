@@ -28,26 +28,12 @@
         android:textColor="@color/on_surface_secondary"
         android:textSize="14sp" />
 
-    <!-- Map placeholder (MapLibre MapView would be placed here at runtime) -->
-    <FrameLayout
-        android:id="@+id/map_container"
+    <!-- MapLibre MapView (MapLibre v10 uses mapbox package internally) -->
+    <com.mapbox.mapboxsdk.maps.MapView
+        android:id="@+id/map_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="@color/surface_variant">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="📍 Map
-(MapLibre view
-initialized in code)"
-            android:textColor="@color/on_surface_secondary"
-            android:gravity="center"
-            android:textSize="13sp" />
-
-    </FrameLayout>
+        android:layout_weight="1" />
 
     <!-- Normal monitoring panel -->
     <LinearLayout

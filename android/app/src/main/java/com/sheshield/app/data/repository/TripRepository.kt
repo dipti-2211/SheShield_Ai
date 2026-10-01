@@ -29,15 +29,19 @@ class TripRepository(context: Context) {
      */
     suspend fun planTrip(request: PlanTripRequest): Result<PlanTripResponse> =
         withContext(Dispatchers.IO) {
+            // Try n8n backend first, always fall back to demo data
             runCatching {
                 val resp = api.planTrip(request)
-                if (resp.isSuccessful) {
-                    resp.body()!!
-                } else {
-                    throw Exception("Backend error ${resp.code()}: ${resp.errorBody()?.string()}")
+                if (resp.isSuccessful && resp.body() != null) {
+                    val body = resp.body()!!
+                    if (body.routes.isNotEmpty()) {
+                        return@runCatching body
+                    }
                 }
-            }.recoverCatching { e ->
-                // Return demo-mode data so the app remains demonstrable
+                // If backend returns empty routes or non-200, use demo data
+                buildDemoTripResponse(request)
+            }.recoverCatching { _ ->
+                // Network failure, timeout, JSON error → always show demo routes
                 buildDemoTripResponse(request)
             }
         }
