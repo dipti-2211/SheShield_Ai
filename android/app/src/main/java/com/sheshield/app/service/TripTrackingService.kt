@@ -14,6 +14,7 @@ import com.sheshield.app.data.repository.TripRepository
 import com.sheshield.app.ui.MainActivity
 import com.sheshield.app.util.NotificationHelper
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 /**
  * Foreground service that runs while a trip is active.
@@ -186,9 +187,4 @@ class TripTrackingService : LifecycleService() {
         fusedLocation.removeLocationUpdates(locationCallback)
         super.onDestroy()
     }
-}
-
-// Extension to await last known location in coroutines
-private suspend fun com.google.android.gms.tasks.Task<Location>.await(): Location? {
-    return kotlinx.coroutines.tasks.await()
 }

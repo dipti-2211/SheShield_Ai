@@ -9,7 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
-import androidx.navigation.findNavController
+import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupActionBarWithNavController
 import com.sheshield.app.R
 import com.sheshield.app.databinding.ActivityMainBinding
@@ -20,7 +20,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     lateinit var tripViewModel: TripViewModel
 
-    // Location permission launcher
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -40,14 +39,20 @@ class MainActivity : AppCompatActivity() {
 
         tripViewModel = ViewModelProvider(this)[TripViewModel::class.java]
 
-        val navController = findNavController(R.id.nav_host_fragment)
+        // Use NavHostFragment directly — avoids IllegalStateException on some devices
+        // when findNavController() is called before the fragment view is attached.
+        val navHostFragment = supportFragmentManager
+            .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+        val navController = navHostFragment.navController
         setupActionBarWithNavController(navController)
 
         requestPermissionsIfNeeded()
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        return findNavController(R.id.nav_host_fragment).navigateUp() || super.onSupportNavigateUp()
+        val navHostFragment = supportFragmentManager
+            .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+        return navHostFragment.navController.navigateUp() || super.onSupportNavigateUp()
     }
 
     private fun requestPermissionsIfNeeded() {

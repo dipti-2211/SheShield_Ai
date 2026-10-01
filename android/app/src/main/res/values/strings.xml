@@ -13,9 +13,9 @@
     <string name="btn_contacts">Trusted Contacts</string>
     <string name="btn_find_routes">Find Safe Routes</string>
     <string name="btn_start_trip">Start Trip</string>
-    <string name="btn_im_safe">✅  I'm Safe</string>
+    <string name="btn_im_safe">I\'m Safe</string>
     <string name="btn_end_trip">End Trip</string>
-    <string name="btn_call_emergency">📞 Call 112 (Emergency)</string>
+    <string name="btn_call_emergency">Call 112 (Emergency)</string>
     <string name="btn_cancel_sos">Cancel SOS &amp; End Trip</string>
     <string name="btn_add_contact">Add Contact</string>
     <string name="btn_clear_contacts">Clear All</string>

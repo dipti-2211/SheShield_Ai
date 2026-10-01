@@ -5,11 +5,15 @@ import android.os.Bundle
 import android.view.*
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.sheshield.app.R
 import com.sheshield.app.databinding.FragmentTripPlanningBinding
 import com.sheshield.app.ui.MainActivity
 import com.sheshield.app.ui.viewmodel.UiState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
@@ -36,7 +40,6 @@ class TripPlanningFragment : Fragment() {
                 is UiState.Loading -> setLoadingState(true)
                 is UiState.RoutesReady -> {
                     setLoadingState(false)
-                    // Navigate to route comparison
                     findNavController().navigate(R.id.action_tripPlanning_to_routeComparison)
                 }
                 is UiState.Error -> {
@@ -45,7 +48,7 @@ class TripPlanningFragment : Fragment() {
                         state.message + if (state.isNetworkError) " (using demo data)" else "",
                         Toast.LENGTH_LONG).show()
                     // Still navigate if routes were recovered with demo data
-                    if (state.isNetworkError) {
+                    if (state.isNetworkError && vm.plannedRoutes.isNotEmpty()) {
                         findNavController().navigate(R.id.action_tripPlanning_to_routeComparison)
                     }
                 }
@@ -65,31 +68,55 @@ class TripPlanningFragment : Fragment() {
 
     private fun geocodeAndPlan(address: String) {
         setLoadingState(true)
-        // Use a rough fixed origin for demo (Kolkata, matching original workflow coords)
-        // In a real app, use FusedLocationProviderClient.lastLocation
+        // Fixed origin (Kolkata) for demo – in production use FusedLocationProviderClient
         val originLat = 22.5726
         val originLng = 88.3639
 
-        try {
-            val gc = Geocoder(requireContext(), Locale.getDefault())
-            @Suppress("DEPRECATION")
-            val results = gc.getFromLocationName(address, 1)
-            if (results.isNullOrEmpty()) {
-                Toast.makeText(requireContext(), "Location not found", Toast.LENGTH_SHORT).show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    try {
+                        val gc = Geocoder(requireContext(), Locale.getDefault())
+                        @Suppress("DEPRECATION")
+                        val results = gc.getFromLocationName(address, 1)
+                        if (!results.isNullOrEmpty()) {
+                            Pair(results[0].latitude, results[0].longitude)
+                        } else {
+                            null
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+
+                if (result != null) {
+                    (activity as MainActivity).tripViewModel.planTrip(
+                        originLat = originLat,
+                        originLng = originLng,
+                        destLat = result.first,
+                        destLng = result.second,
+                        destLabel = address
+                    )
+                } else {
+                    // Geocoding failed or returned no results.
+                    // Fall back to a Kolkata demo destination so the app still works.
+                    Toast.makeText(
+                        requireContext(),
+                        "Could not geocode \"$address\" – using demo destination",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    (activity as MainActivity).tripViewModel.planTrip(
+                        originLat = originLat,
+                        originLng = originLng,
+                        destLat = 22.5900,
+                        destLng = 88.3800,
+                        destLabel = address
+                    )
+                }
+            } catch (e: Exception) {
                 setLoadingState(false)
-                return
+                Toast.makeText(requireContext(), "Error: ${e.message}", Toast.LENGTH_SHORT).show()
             }
-            val dest = results[0]
-            (activity as MainActivity).tripViewModel.planTrip(
-                originLat = originLat,
-                originLng = originLng,
-                destLat = dest.latitude,
-                destLng = dest.longitude,
-                destLabel = address
-            )
-        } catch (e: Exception) {
-            Toast.makeText(requireContext(), "Geocoding failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            setLoadingState(false)
         }
     }
 

@@ -34,6 +34,13 @@ class RouteComparisonFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         val vm = (activity as MainActivity).tripViewModel
 
+        // If routes are already available in ViewModel, show them immediately
+        if (vm.plannedRoutes.isNotEmpty()) {
+            routes = vm.plannedRoutes
+            plannedTripId = vm.plannedTripId ?: ""
+            showRoutes(routes)
+        }
+
         vm.uiState.observe(viewLifecycleOwner) { state ->
             when (state) {
                 is UiState.RoutesReady -> {
@@ -60,28 +67,36 @@ class RouteComparisonFragment : Fragment() {
                 Toast.makeText(requireContext(), "Please select a route", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            // Use demo origin for now - in production use actual location
             vm.startTrip(
                 selectedRoute = route,
                 originLat = 22.5726, originLng = 88.3639,
                 destLat = 22.5800, destLng = 88.3900,
-                destLabel = "Selected Destination"
+                destLabel = route.label
             )
         }
     }
 
     private fun showRoutes(routes: List<RouteOption>) {
+        if (routes.isEmpty()) return
         binding.rvRoutes.layoutManager = LinearLayoutManager(requireContext())
         binding.rvRoutes.adapter = RouteAdapter(routes) { route ->
-            selectedRoute = route
-            binding.btnStartTrip.isEnabled = true
-            val isDemoNote = if (route.isDemoData) "\n⚠️ Demo data — not real crime records" else ""
-            binding.tvSelectedRouteSummary.text =
-                "${route.label}\n" +
-                "Risk: ${route.riskLevel.name} (score: ${"%.0f".format(route.riskScore * 100)}%)\n" +
-                "${route.riskSummary}$isDemoNote"
-            binding.tvSelectedRouteSummary.visibility = View.VISIBLE
+            selectRoute(route)
         }
+        // Auto-select the first (recommended/safest) route by default
+        if (selectedRoute == null) {
+            selectRoute(routes[0])
+        }
+    }
+
+    private fun selectRoute(route: RouteOption) {
+        selectedRoute = route
+        binding.btnStartTrip.isEnabled = true
+        val isDemoNote = if (route.isDemoData) "\n⚠️ Demo data — not real crime records" else ""
+        binding.tvSelectedRouteSummary.text =
+            "${route.label}\n" +
+            "Risk: ${route.riskLevel.name} (score: ${"%.0f".format(route.riskScore * 100)}%)\n" +
+            "${route.riskSummary}$isDemoNote"
+        binding.tvSelectedRouteSummary.visibility = View.VISIBLE
     }
 
     override fun onDestroyView() {

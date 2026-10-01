@@ -68,6 +68,11 @@ class ActiveTripFragment : Fragment() {
             findNavController().navigate(R.id.action_activeTrip_to_sos)
         }
 
+        binding.btnSosCheckin.setOnClickListener {
+            vm.triggerSos()
+            findNavController().navigate(R.id.action_activeTrip_to_sos)
+        }
+
         binding.btnEndTrip.setOnClickListener {
             vm.endTrip()
         }

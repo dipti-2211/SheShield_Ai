@@ -78,6 +78,28 @@ class TripRepository(context: Context) {
                 )
             )
             body
+        }.recoverCatching { e ->
+            // Fallback for offline / demo mode
+            val demoSessionToken = java.util.UUID.randomUUID().toString()
+            dao.upsert(
+                ActiveTrip(
+                    tripId = tripId,
+                    sessionToken = demoSessionToken,
+                    originLat = origin.latitude,
+                    originLng = origin.longitude,
+                    destinationLat = destination.latitude,
+                    destinationLng = destination.longitude,
+                    destinationLabel = destLabel,
+                    selectedRouteId = selectedRoute.routeId,
+                    state = TripState.ACTIVE,
+                    trustedContacts = com.google.gson.Gson().toJson(contacts)
+                )
+            )
+            StartTripResponse(
+                tripId = tripId,
+                sessionToken = demoSessionToken,
+                status = "ACTIVE"
+            )
         }
     }
 

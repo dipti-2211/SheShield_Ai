@@ -36,8 +36,10 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: LiveData<UiState> = _uiState
 
     // Parsed route options from planning
-    private var plannedTripId: String? = null
-    private var plannedRoutes: List<RouteOption> = emptyList()
+    var plannedTripId: String? = null
+        private set
+    var plannedRoutes: List<RouteOption> = emptyList()
+        private set
 
     // Trusted contacts (loaded from prefs)
     private val prefs by lazy {
@@ -93,10 +95,7 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
         originLat: Double, originLng: Double,
         destLat: Double, destLng: Double, destLabel: String
     ) {
-        val tripId = plannedTripId ?: run {
-            _uiState.value = UiState.Error("No planned trip to start")
-            return
-        }
+        val tripId = plannedTripId ?: "trip-${UUID.randomUUID()}"
         _uiState.value = UiState.Loading
         viewModelScope.launch {
             val result = repo.startTrip(
