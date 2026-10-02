@@ -90,6 +90,7 @@ class TripTrackingService:LifecycleService() {
         repo.prefs.edit().remove("tracking_problem").apply()
         val projection=TripMath.project(LatLng(fix.latitude,fix.longitude),route)
         repo.updateLocation(fix,projection.index)
+        if(repo.active()?.route()?.revision!=route.revision)return
         val segment=route.segments.firstOrNull{it.startIndex==projection.index&&it.level in listOf("MEDIUM","HIGH")}
         if(segment!=null&&projection.distanceMeters<50&&fix.accuracy<=50){
             if(candidate==segment.level)consecutive++ else{candidate=segment.level;consecutive=1}

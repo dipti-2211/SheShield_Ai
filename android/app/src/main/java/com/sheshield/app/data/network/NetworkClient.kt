@@ -23,8 +23,11 @@ object NetworkClient {
         return Retrofit.Builder().baseUrl(base).client(client).addConverterFactory(GsonConverterFactory.create()).build().create(SheShieldApi::class.java)
     }
     fun message(e: Throwable): String = when(e) {
-        is HttpException -> runCatching { Gson().fromJson(e.response()?.errorBody()?.string(),com.google.gson.JsonObject::class.java).get("message").asString }.getOrDefault("The server returned ${e.code()}. Please retry.")
-        is java.io.IOException -> "Connection unavailable. Check your internet and API connection."
+        is HttpException -> runCatching { Gson().fromJson(e.response()?.errorBody()?.string(),com.google.gson.JsonObject::class.java).get("message").asString }.getOrDefault(if(e.code()==530)"The API tunnel is offline. Check the saved API URL in Settings → Demo connection." else "The server returned ${e.code()}. Please retry.")
+        is java.net.UnknownHostException -> "The API address could not be found. Check Settings → Demo connection; temporary tunnel addresses can expire."
+        is java.net.ConnectException -> "The SheShield API is unreachable. Check that the API server and public connection are running."
+        is java.net.SocketTimeoutException -> "The API connection timed out. Try again, then check readiness in Settings."
+        is java.io.IOException -> "The API connection is unavailable. Check readiness in Settings → Demo connection."
         else -> e.message ?: "Something went wrong. Please retry."
     }
 }

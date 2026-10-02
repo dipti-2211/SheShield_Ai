@@ -13,9 +13,26 @@ data class Place(val label: String, val latitude: Double, val longitude: Double,
 data class TrustedContact(val name: String, val phone: String)
 data class RiskSegment(@SerializedName("segment_id") val id: String, @SerializedName("start_index") val startIndex: Int,
     @SerializedName("end_index") val endIndex: Int, val score: Double, @SerializedName("risk_level") val level: String,
-    @SerializedName("distance_meters") val distanceMeters: Double)
+    @SerializedName("distance_meters") val distanceMeters: Double, @SerializedName("evidence_count") val evidenceCount: Int = 0)
 data class Evidence(val id: String, val category: String, @SerializedName("days_old") val daysOld: Int,
-    @SerializedName("distance_km") val distanceKm: Double, val source: String)
+    @SerializedName("distance_km") val distanceKm: Double, val source: String,
+    @SerializedName("source_url") val sourceUrl: String? = null,
+    @SerializedName("precision_meters") val precisionMeters: Int = 0,
+    @SerializedName("distance_min_meters") val distanceMinMeters: Int = 0,
+    @SerializedName("distance_max_meters") val distanceMaxMeters: Int = 0,
+    @SerializedName("reviewed_at") val reviewedAt: String? = null)
+data class EvidenceStretch(val kind: String, val coverage: String,
+    @SerializedName("from_meters") val fromMeters: Int, @SerializedName("to_meters") val toMeters: Int,
+    @SerializedName("report_count") val reportCount: Int)
+data class CoverageWindow(val source: String, val from: String, val to: String,
+    @SerializedName("updated_at") val updatedAt: String)
+data class EvidencePassport(@SerializedName("coverage_percent") val coveragePercent: Int,
+    @SerializedName("longest_unknown_meters") val longestUnknownMeters: Int,
+    @SerializedName("peak_exposure") val peakExposure: Double,
+    @SerializedName("context_report_count") val contextReportCount: Int,
+    @SerializedName("precise_report_count") val preciseReportCount: Int,
+    val stretches: List<EvidenceStretch> = emptyList(),
+    @SerializedName("coverage_windows") val coverageWindows: List<CoverageWindow> = emptyList())
 data class RouteStep(val instruction: String = "Continue along the route", val distance: Double = 0.0,
     @SerializedName("way_points") val wayPoints: List<Int> = emptyList())
 data class RouteOption(@SerializedName("route_id") val routeId: String, val label: String,
@@ -28,7 +45,8 @@ data class RouteOption(@SerializedName("route_id") val routeId: String, val labe
     @SerializedName("evaluated_at") val evaluatedAt: String = "", @SerializedName("route_revision") val revision: Int = 1,
     val steps: List<RouteStep> = emptyList(),
     @SerializedName("origin_snap_meters") val originSnapMeters: Int = 0,
-    @SerializedName("destination_snap_meters") val destinationSnapMeters: Int = 0) {
+    @SerializedName("destination_snap_meters") val destinationSnapMeters: Int = 0,
+    val passport: EvidencePassport? = null) {
     val points get() = geometry.map { LatLng(it[1], it[0]) }
 }
 data class TripPlan(val id: String, val mode: String, val origin: Place, val destination: Place,
@@ -39,7 +57,9 @@ data class LocationFix(val latitude: Double, val longitude: Double,
     @SerializedName("accuracy_meters") val accuracy: Float = 0f, @SerializedName("timestamp_ms") val timestampMs: Long = System.currentTimeMillis(),
     val sequence: Long = 0)
 data class CheckInEvent(val id: String, @SerializedName("segment_id") val segmentId: String,
-    val status: String, @SerializedName("deadline_ms") val deadlineMs: Long)
+    val status: String, @SerializedName("deadline_ms") val deadlineMs: Long,
+    @SerializedName("delivery_ready") val deliveryReady: Boolean = false,
+    @SerializedName("companion_seen_at_ms") val companionSeenAtMs: Long? = null)
 data class RemoteTrip(val id: String, val mode: String, val state: String, val origin: Place, val destination: Place,
     val route: RouteOption, val contacts: List<TrustedContact> = emptyList(),
     @SerializedName("last_location") val lastLocation: LocationFix? = null,
@@ -76,10 +96,17 @@ data class DeliveryAttempt(val id: String, val contact: TrustedContact, val stat
 data class SosIncident(val id: String, @SerializedName("trip_id") val tripId: String? = null,
     val mode: String, val status: String, val cancelled: Boolean = false, val location: LocationFix? = null,
     val contacts: List<TrustedContact> = emptyList(), val timeline: List<TimelineEvent> = emptyList(),
-    val attempts: List<DeliveryAttempt> = emptyList(), @SerializedName("created_at_ms") val createdAtMs: Long)
+    val attempts: List<DeliveryAttempt> = emptyList(), @SerializedName("sms_attempts") val smsAttempts: List<DeliveryAttempt>? = null,
+    @SerializedName("created_at_ms") val createdAtMs: Long)
 data class SessionResponse(@SerializedName("session_token") val token: String)
 data class PlacesResponse(val places: List<Place>)
 data class TripsResponse(val trips: List<RemoteTrip>)
 data class ReadyResponse(val status: String, val routing: Boolean, @SerializedName("risk_data") val riskData: Boolean,
-    val n8n: Boolean, val callbacks: Boolean, @SerializedName("live_alerts") val liveAlerts: Boolean)
+    val n8n: Boolean, val callbacks: Boolean, @SerializedName("live_alerts") val liveAlerts: Boolean,
+    @SerializedName("cloud_sms") val cloudSms: Boolean = false)
 data class ShareResponse(val url: String)
+data class AvoidArea(val center: List<Double>, @SerializedName("radius_meters") val radiusMeters: Int)
+data class RerouteProposal(@SerializedName("trip_id") val tripId: String,
+    @SerializedName("proposal_id") val proposalId: String, val routes: List<RouteOption>,
+    val origin: LocationFix, @SerializedName("avoid_areas") val avoidAreas: List<AvoidArea> = emptyList(),
+    @SerializedName("expires_at_ms") val expiresAtMs: Long)

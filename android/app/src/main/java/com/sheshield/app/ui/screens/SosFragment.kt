@@ -21,12 +21,20 @@ class SosFragment:ScreenFragment(){
     override fun onCreateView(inflater:LayoutInflater,container:ViewGroup?,state:Bundle?):View{
         val c=requireContext();val root=Ui.col(c);root.addView(Ui.col(c,20).apply{addView(Ui.header(c,"Contact support",back={main.nav.popBackStack()}))});val body=Ui.col(c,20)
         val footer=Ui.col(c,12)
-        stateText=Ui.text(c,"SOS requested",32,true,R.color.sos_red);body.addView(stateText);body.addView(Ui.space(c,12));body.addView(Ui.text(c,"Stay where you feel safest. You can call emergency services at any time.",16,tint=R.color.on_surface_secondary));body.addView(Ui.space(c,20))
+        stateText=Ui.text(c,"SOS requested",32,true,R.color.sos_red);body.addView(stateText);body.addView(Ui.space(c,12));body.addView(Ui.text(c,"Cloud calls and SMS are requested through your configured service. Their status appears below. Stay where you feel safest.",16,tint=R.color.on_surface_secondary));body.addView(Ui.space(c,20))
         details=Ui.col(c);body.addView(details)
         footer.addView(Ui.button(c,"Call emergency services · 112",danger=true){startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:112")))})
-        footer.addView(Ui.button(c,"Open SMS composer",true){val i=incident?:return@button;if(i.contacts.isEmpty()){Ui.error(c,"Add a trusted contact in Circle first.");return@button};if(i.mode=="REHEARSAL"){Ui.error(c,"Rehearsal sends no real messages. Switch modes for device texting.");return@button}
+        footer.addView(Ui.button(c,"Text with phone · fallback",true){val i=incident?:return@button;if(i.contacts.isEmpty()){Ui.error(c,"Add a trusted contact in Circle first.");return@button};if(i.mode=="REHEARSAL"){Ui.error(c,"Rehearsal sends no real messages. Switch modes for device texting.");return@button}
             val loc=i.location;val text="SheShield SOS: I may need help."+(loc?.let{" Last known location: https://maps.google.com/?q=${it.latitude},${it.longitude}"}?:" Location unavailable.")
             runCatching{startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:"+i.contacts.joinToString(";"){it.phone})).putExtra("sms_body",text))}.onFailure{Ui.error(c,"No SMS app is available on this device.")}
+        })
+        footer.addView(Ui.button(c,"Send SMS through SIM",true){val i=incident?:return@button
+            if(i.mode=="REHEARSAL"){Ui.error(c,"Practice sends no real texts.");return@button}
+            if(i.contacts.isEmpty()){Ui.error(c,"Add trusted contacts in Circle first.");return@button}
+            if(!repo.prefs.getBoolean("device_sms",false)){Ui.error(c,"Enable automatic device SMS in Settings and grant SMS permission to send through your SIM.");return@button}
+            Ui.confirm(c,"Send through your SIM?","This sends an SOS text to your circle. Carrier charges may apply. Cloud SMS already requested could also arrive.","Send SMS"){
+                SmsHelper.sendSosMessages(c,i.contacts.map{it.phone},i.location,i.id);lastRendered="";render(i)
+            }
         })
         footer.addView(Ui.button(c,"Cancel future escalation",true){Ui.confirm(c,"Cancel this alert?","Future contact attempts will stop. Already sent messages cannot be recalled.","Cancel alert"){runAction{repo.cancelSos();main.navigate(R.id.homeFragment)}}})
         root.addView(Ui.scroll(c,body),LinearLayout.LayoutParams(-1,0,1f));root.addView(footer);return root
@@ -47,6 +55,15 @@ class SosFragment:ScreenFragment(){
         val c=requireContext();stateText.text=when(i.status){"ACKNOWLEDGED"->"Your contact acknowledged";"CANCELLED"->"Alert cancelled";"PENDING"->"Waiting for connection";"EXPIRED"->"Remote alert expired";"FAILED"->"Remote request failed";"UNAVAILABLE"->"Calls unavailable";"NO_CONTACTS"->"Your circle is empty";else->"SOS is active"}
         val key=repo.gson.toJson(i)+SmsHelper.statuses(c,i.id,i.contacts.map{it.phone}).joinToString();if(key==lastRendered)return;lastRendered=key;details.removeAllViews()
         if(i.mode=="REHEARSAL")details.addView(Ui.badge(c,"REHEARSAL · NO REAL CALLS OR TEXTS"))
+        val channels=Ui.col(c,16);channels.addView(Ui.text(c,"Cloud contact alerts",18,true))
+        if(i.mode=="REHEARSAL")channels.addView(Ui.text(c,"Calls below are simulated. No cloud SMS is sent.",14))
+        else {
+            i.attempts.forEach{channels.addView(Ui.text(c,"Call · ${it.contact.name}: ${it.status.lowercase().replace('_',' ')}",14))}
+            i.smsAttempts.orEmpty().forEach{channels.addView(Ui.text(c,"SMS · ${it.contact.name}: ${it.status.lowercase().replace('_',' ')}",14))}
+            if(i.attempts.isEmpty()&&i.smsAttempts.orEmpty().isEmpty())channels.addView(Ui.text(c,"Waiting for server confirmation. Cloud delivery is unconfirmed.",14))
+            channels.addView(Ui.text(c,"Delivered SMS is not an acknowledgement. A contact can press 1 during a cloud call to acknowledge.",13,tint=R.color.on_surface_secondary))
+        }
+        details.addView(Ui.card(c,channels))
         val loc=Ui.col(c,20);loc.addView(Ui.text(c,"Your recorded location",18,true));loc.addView(Ui.space(c,8));loc.addView(Ui.text(c,i.location?.let{"${"%.5f".format(it.latitude)}, ${"%.5f".format(it.longitude)}\nRecorded ${java.text.DateFormat.getTimeInstance().format(java.util.Date(it.timestampMs))}"}?:"Location unavailable. Your alert can still be sent.",15,tint=R.color.on_surface_secondary));details.addView(Ui.card(c,loc))
         i.timeline.forEach{event->val row=Ui.col(c,16);row.addView(Ui.text(c,event.message,16,true));row.addView(Ui.text(c,java.text.DateFormat.getTimeInstance().format(java.util.Date(event.atMs)),13,tint=R.color.on_surface_secondary));details.addView(Ui.card(c,row))}
         if(i.mode!="REHEARSAL"){details.addView(Ui.text(c,"Device SMS",18,true));SmsHelper.statuses(c,i.id,i.contacts.map{it.phone}).forEach{details.addView(Ui.text(c,it,14,tint=R.color.on_surface_secondary))}}

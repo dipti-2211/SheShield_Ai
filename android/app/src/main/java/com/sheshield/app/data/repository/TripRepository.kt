@@ -78,9 +78,17 @@ class TripRepository private constructor(private val context: Context) {
     suspend fun uploadLocation(fix:LocationFix){val t=active()?:return;if(t.isRehearsal)return
         runCatching{enroll();api.location(t.tripId,fix)}.onSuccess{remote->mergeRemote(remote)}.onFailure{mutex.withLock{active()?.let{dao.upsert(it.copy(syncStatus="OFFLINE"))}}}
     }
+    private fun rememberCheckIn(remote:RemoteTrip) {
+        remote.checkIn?.let { event ->
+            prefs.edit().putString("server_event:${remote.id}",event.id)
+                .putBoolean("delivery_ready:${remote.id}",event.deliveryReady)
+                .putLong("companion_seen:${remote.id}",event.companionSeenAtMs?:0L).apply()
+        }
+    }
     private suspend fun mergeRemote(remote:RemoteTrip)=mutex.withLock {
         val local=dao.getTripById(remote.id)?:return@withLock
         if(local.isEnded||remote.version<local.version)return@withLock
+        rememberCheckIn(remote)
         if(dao.queued().any{it.tripId==remote.id})return@withLock
         dao.upsert(fromRemote(remote,local))
     }
@@ -93,15 +101,33 @@ class TripRepository private constructor(private val context: Context) {
         if(!t.isRehearsal)queue(OutboxEvent(eventId,t.tripId,"v1/trips/${t.tripId}/check-ins",gson.toJson(mapOf("event_id" to eventId,"segment_id" to segmentId,"deadline_ms" to deadline,
             "location" to LocationFix(t.lastLatitude,t.lastLongitude,t.accuracyMeters,t.lastUpdateMs,t.lastUpdateMs)))))
     }
+    suspend fun armWatch(seconds:Int)=mutex.withLock {
+        require(seconds in 20..1800){"Choose a watch lasting up to 30 minutes."}
+        val t=active()?:error("Start a journey first.")
+        check(t.state==TripState.ACTIVE){"Resolve the current check-in before starting another watch."}
+        check(t.isRehearsal||seconds>=60){"Choose at least one minute."}
+        val eventId="watch-${UUID.randomUUID()}"
+        val deadline=System.currentTimeMillis()+seconds*1000L
+        dao.upsert(t.copy(state=TripState.CHECK_IN_PENDING,checkInId=eventId,checkInDeadlineMs=deadline,
+            lastCheckInAtMs=System.currentTimeMillis(),syncStatus=if(t.isRehearsal)"SYNCED" else "PENDING"))
+        if(!t.isRehearsal){
+            val body=mutableMapOf<String,Any>("event_id" to eventId,"kind" to "PERSONAL","window_seconds" to seconds,"deadline_ms" to deadline)
+            if(System.currentTimeMillis()-t.lastUpdateMs in 0..60000 && t.accuracyMeters in 0f..50f)
+                body["location"]=LocationFix(t.lastLatitude,t.lastLongitude,t.accuracyMeters,t.lastUpdateMs)
+            queue(OutboxEvent(eventId,t.tripId,"v1/trips/${t.tripId}/check-ins",gson.toJson(body)))
+        }
+    }
     suspend fun confirmSafe(){val expired=mutex.withLock{
         val t=active()?:return@withLock false;if(t.state!=TripState.CHECK_IN_PENDING)return@withLock false
         if(t.checkInDeadlineMs>0&&System.currentTimeMillis()>=t.checkInDeadlineMs)return@withLock true
+        if(!t.isRehearsal)prefs.edit().putBoolean("disarm_pending:${t.tripId}",true).apply()
         dao.upsert(t.copy(state=TripState.ACTIVE,checkInDeadlineMs=0,syncStatus=if(t.isRehearsal)"SYNCED" else "PENDING"))
         if(!t.isRehearsal)queue(OutboxEvent(UUID.randomUUID().toString(),t.tripId,"v1/trips/${t.tripId}/check-ins/${t.checkInId}/resolve",gson.toJson(mapOf("status" to "SAFE","resolved_at_ms" to System.currentTimeMillis()))))
         false
     };if(expired)createSos("TIMEOUT")}
     suspend fun end(cancelled:Boolean=false)=mutex.withLock {
         val t=active()?:return@withLock
+        if(!t.isRehearsal)prefs.edit().putBoolean("disarm_pending:${t.tripId}",true).apply()
         dao.upsert(t.copy(state=if(cancelled)TripState.CANCELLED else TripState.COMPLETED,endedAtMs=System.currentTimeMillis(),checkInDeadlineMs=0,syncStatus=if(t.isRehearsal)"SYNCED" else "PENDING"))
         if(t.sosId.isNotBlank())cancelIncidentLocal(t.sosId)
         if(!t.isRehearsal){dao.queued().filter{it.tripId==t.tripId&&(it.path.contains("check-ins")||it.path=="v1/sos")}.forEach{dao.acknowledge(it.id)}
@@ -164,6 +190,11 @@ class TripRepository private constructor(private val context: Context) {
                         }
                     }
                 }
+                if(e.path.contains("check-ins")) {
+                    rememberCheckIn(gson.fromJson(result,RemoteTrip::class.java))
+                    if(e.path.endsWith("/resolve"))prefs.edit().remove("disarm_pending:${e.tripId}").apply()
+                }
+                if(e.path.endsWith("/end"))prefs.edit().remove("disarm_pending:${e.tripId}").apply()
                 dao.acknowledge(e.id)
             }catch(error:Exception){
                 if(error is retrofit2.HttpException && error.code() in listOf(400,404,409,410,422)){dao.acknowledge(e.id);repoError(NetworkClient.message(error));markAlertFailure(e,"FAILED",NetworkClient.message(error));continue}
@@ -179,8 +210,38 @@ class TripRepository private constructor(private val context: Context) {
     }
     private fun repoError(message:String){prefs.edit().putString("sync_error",message).apply()}
     suspend fun nextDemoCheckIn()=mutex.withLock{active()?.takeIf{it.isRehearsal&&it.state==TripState.ACTIVE}?.let{dao.upsert(it.copy(lastCheckInAtMs=0))}}
-    suspend fun share(trip:ActiveTrip):String {enroll();return api.share(trip.tripId).url}
-    suspend fun reroute(trip:ActiveTrip):RouteOption {enroll();return api.reroute(trip.tripId,json(mapOf("origin" to Place("Current location",trip.lastLatitude,trip.lastLongitude))))}
-    suspend fun acceptRoute(route:RouteOption){val t=active()?:return;api.command("v1/trips/${t.tripId}/route",UUID.randomUUID().toString(),json(mapOf("route" to route)));mutex.withLock{active()?.let{dao.upsert(it.copy(routeJson=gson.toJson(route),selectedRouteId=route.routeId,progressIndex=0))}}}
+    suspend fun share(trip:ActiveTrip):String {check(!trip.isRehearsal){"Practice journeys stay on this phone. Live journeys can create a companion link."};enroll();return api.share(trip.tripId).url}
+    suspend fun revokeShares(trip:ActiveTrip){enroll();api.revokeShares(trip.tripId)}
+    suspend fun reroute(trip:ActiveTrip,avoidAhead:Int?=null):RerouteProposal {
+        check(!trip.isRehearsal){"Alternatives from your GPS position are available in live journeys. Practice uses a simulated position."}
+        check(active()?.tripId==trip.tripId){"This journey has ended."}
+        val fix=com.sheshield.app.util.LocationProvider(context).current()
+        check(com.sheshield.app.util.TripMath.validFix(fix)&&fix.accuracy>0&&fix.accuracy<=50){"GPS is uncertain. Wait for a fresh position accurate to 50 m and try again."}
+        enroll()
+        val remote=api.location(trip.tripId,fix.copy(sequence=fix.timestampMs))
+        mergeRemote(remote)
+        val body=mutableMapOf<String,Any>("origin" to fix)
+        if(avoidAhead!=null)body["avoid_ahead_meters"]=avoidAhead
+        return api.reroute(trip.tripId,json(body))
+    }
+    suspend fun acceptRoute(proposal:RerouteProposal,route:RouteOption){
+        check(active()?.tripId==proposal.tripId){"This journey has ended."}
+        check(System.currentTimeMillis()<proposal.expiresAtMs){"These alternatives expired. Find another way again."}
+        sync()
+        val fix=com.sheshield.app.util.LocationProvider(context).current()
+        check(com.sheshield.app.util.TripMath.validFix(fix)&&fix.accuracy>0&&fix.accuracy<=50){"Wait for an accurate GPS position before accepting."}
+        enroll();api.location(proposal.tripId,fix.copy(sequence=fix.timestampMs))
+        val choice="${proposal.proposalId}:${route.routeId}"
+        val key=if(prefs.getString("route_choice",null)==choice)prefs.getString("route_choice_key",null)?:UUID.randomUUID().toString() else UUID.randomUUID().toString()
+        prefs.edit().putString("route_choice",choice).putString("route_choice_key",key).apply()
+        mutex.withLock{
+            val local=active()?.takeIf{it.tripId==proposal.tripId&&!it.isEnded}?:error("This journey has ended.")
+            check(dao.queued().none{it.tripId==proposal.tripId}){"A check-in update is awaiting server confirmation. Try accepting again after it syncs."}
+            val response=api.command("v1/trips/${proposal.tripId}/route",key,json(mapOf("proposal_id" to proposal.proposalId,"route_id" to route.routeId,"route_revision" to route.revision,"expected_check_in_id" to if(local.state==TripState.CHECK_IN_PENDING)local.checkInId else "")))
+            val remote=gson.fromJson(response,RemoteTrip::class.java)
+            if(remote.version>=local.version)dao.upsert(fromRemote(remote,local).copy(progressIndex=0))
+        }
+        prefs.edit().putInt("off_route_fixes",0).putBoolean("arrival_ready",false).remove("route_choice").remove("route_choice_key").apply()
+    }
     suspend fun deleteTrip(trip:ActiveTrip){if(!trip.isRehearsal)runCatching{api.deleteTrip(trip.tripId)};dao.delete(trip.tripId)}
 }
