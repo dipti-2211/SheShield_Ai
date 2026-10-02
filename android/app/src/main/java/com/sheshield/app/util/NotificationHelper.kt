@@ -26,7 +26,7 @@ object NotificationHelper {
     fun updateTrip(ctx:Context,t:ActiveTrip,text:String){ctx.getSystemService(NotificationManager::class.java).notify(NOTIF_TRIP_ACTIVE_ID,tripNotification(ctx,t,text))}
     fun showCheckInNotification(ctx:Context,t:ActiveTrip){
         val n=NotificationCompat.Builder(ctx,"checkin").setSmallIcon(R.drawable.ic_shield_notification).setContentTitle("Are you safe?")
-            .setContentText("Confirm before the countdown ends to stop contact escalation.").setContentIntent(open(ctx,"trip"))
+            .setContentText(if(t.checkInId.startsWith("departure-"))"You left your planned route. Confirm you are okay before the countdown ends." else "Confirm before the countdown ends to stop contact escalation.").setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setContentIntent(open(ctx,"trip"))
             .setWhen(t.checkInDeadlineMs).setUsesChronometer(true).setChronometerCountDown(true).setOnlyAlertOnce(true).setOngoing(true)
             .addAction(0,"I'm safe",action(ctx,TripTrackingService.ACTION_SAFE,t)).addAction(0,"SOS",action(ctx,TripTrackingService.ACTION_SOS,t)).build()
         ctx.getSystemService(NotificationManager::class.java).notify(CHECK,n)

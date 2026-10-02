@@ -19,7 +19,8 @@ export function parseOrs(body,origin,destination) {
 }
 export async function routeLive(origin,destination,key,options={},request=fetchJson) {
   if(!key)throw new ApiError('ROUTING_NOT_CONFIGURED','Routing is not configured. Add ORS_API_KEY to the API environment.',503);
-  const body={coordinates:[origin,destination],instructions:true,alternative_routes:{target_count:3,share_factor:.8,weight_factor:1.6}};
+  const body={coordinates:options.via?[origin,options.via,destination]:[origin,destination],instructions:true};
+  if(!options.via)body.alternative_routes={target_count:3,share_factor:.8,weight_factor:1.6};
   if(options.avoid_polygons)body.options={avoid_polygons:options.avoid_polygons};
   const response=await request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(body)});
   const routes=parseOrs(response,origin,destination);if(!routes.length)throw new ApiError('NO_ROUTES','No walking route found. Choose another destination.',422);

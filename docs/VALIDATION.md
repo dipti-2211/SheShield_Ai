@@ -1,13 +1,13 @@
 # Observed validation
 
-Recorded 2 October 2026 for the street-evidence and personal-watch update, following the v2 journey rework. Results below distinguish actual provider requests, emulator behavior, simulated delivery and the separately authorized real Cloud delivery test.
+Updated 3 October 2026 (India) for walking conditions and departure check-ins, following the street-evidence and personal-watch update. Results below distinguish actual provider requests, emulator behavior, simulated delivery and the separately authorized real Cloud delivery test.
 
 ## Build and automated checks
 
 | Check | Observed result |
 | --- | --- |
-| API production/risk/evidence/rerouting/cloud-SMS/sharing/import/messages regression suite | 80 tests passed, 0 failed |
-| Android journey-math, saved-alert compatibility and sharing request unit tests | 12 tests passed, 0 failed |
+| API production/risk/evidence/rerouting/cloud-SMS/sharing/import/messages regression suite | 94 tests passed, 0 failed |
+| Android journey-math, saved-alert compatibility and sharing request unit tests | 14 tests passed, 0 failed |
 | Android debug APK build | Passed; `artifacts/SheShield-debug.apk` |
 | Android lint | Passed with 0 errors; warnings about hardcoded text, obsolete resources and API deprecations remain |
 | Room v1 → v2 recovery instrumentation | Passed on API 37 emulator, 1 test; legacy contact/trip/deadline preservation and reopen checked using a separate database |
@@ -18,6 +18,22 @@ Recorded 2 October 2026 for the street-evidence and personal-watch update, follo
 API tests cover immutable selected geometry, command replay, unique timeout escalation, SAFE/end, owner authorization, standalone SOS, honest unavailable delivery, signed/monotonic Twilio callbacks, late acknowledgement, transaction rollback, SQLite restart recovery, invalid GPS, expiring share links, timely offline SAFE recovery, changed practice endpoints, explicit recorded-demo selection, bounded/matching Kolkata landmark search, route snapping/metrics/deduplication, and the actual geographic scoring engine.
 
 Reproduce API tests with `cd api && npm test`. Build Android with `scripts/build_android.sh :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`. This workspace uses persistent portable tools under ignored `.tools/runtime` and `.tools/android`; Windows Studio can build the `android/` project with its installed SDK.
+
+## Walking conditions and departure check-ins
+
+The final regression suite passed 94 tests, including exact area crossings/holes/tangency, invalid polygons, nearby parallel/stacked map paths, India opening-hours schedules, unknown exceptions, stale snapshots, entrance connectivity, named-area history, map provenance, immutable publication, supported preference improvements and unknown/detour/access restrictions. Observation comparisons cannot outlive matched expiries. API nearby/waypoint tests preserve destinations and pending deadlines.
+
+Departure tests reject disabled protection, stale/uncertain GPS, short trails, gaps, jumps, old route revisions and entrance positions. Repeated submissions preserve one deadline. The server escalates once after phone absence; SAFE grace, journey completion and private companion-link shutdown are checked. No test dispatches real calls/SMS. Android's persisted departure detector tests bring its unit total to 14. The final debug build and lint passed with **0 errors and 129 warnings**. Room schema remains version 2; this update made no migration or data reset. Prior migration instrumentation results below were not rerun.
+
+The loaded OSM snapshot contains 9,146 road/path ways, 234 deduplicated mapped places and 1,143 surrounding/block polygons, with zero rejected records. Its extracts are incomplete and have no independent validation. The BG Block historical report intersects the tested route for **231 m**; this is overlap with the named block, not incident-point accuracy. On both real Sector II/V provider checks, lighting-known and walkway-known distance were **0 m**. Condition preferences stayed unavailable. [Provider results](../artifacts/walking-live-check.json), [snapshot manifest](../artifacts/walking-manifest.json).
+
+A separate isolated in-memory API requested and accepted a real walking option via Composite Hospital: **1,805 m**, compared with the original **1,462 m** walk. The destination and departure protection were preserved. Entrance/hours/assistance remain unconfirmed; there were zero SOS incidents or delivery attempts. [Waypoint results](../artifacts/nearby-walking-check.json).
+
+The final APK was installed on the API 37 emulator without clearing contacts/history. Explicit BG/BJ Block searches returned real candidates and routes. The screen checks cover a source-linked historical area, unknown condition totals, nearby map records, preference unavailability, the two-/five-minute departure choice and an updated visible choice label. [Route screen](../artifacts/walking-route.png), [conditions](../artifacts/walking-conditions.png), [historical area](../artifacts/walking-area.png), [availability](../artifacts/walking-availability.png). These UI checks started no live journey and requested no alerts. Automatic departure detection was verified with synthetic GPS unit/API cases; no physical walking trace or new Twilio delivery was tested.
+
+The running API was updated with both immutable snapshots while preserving its database and existing tunnel address. Zero journeys/deliveries were active during restart. [Final public check](../artifacts/walking-public-check.json) records health, enrollment, configuration readiness and loaded walking data. A short service-restart interruption returned 502 before the detached API process was restored; readiness does not certify provider delivery. No physical device was attached, so installing this APK and a real urban GPS/background walk remain pending. The temporary public tunnel still depends on this computer and is unsuitable as a lasting deployment.
+
+Operational details, source attribution, thresholds and data dependencies: [WALKING_CONDITIONS.md](WALKING_CONDITIONS.md).
 
 ## Salt Lake source and attribution update
 

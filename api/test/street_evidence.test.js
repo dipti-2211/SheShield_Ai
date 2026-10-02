@@ -112,7 +112,7 @@ test('public route explanations and evidence status contain only safe fields and
   const session=(await app.inject({method:'POST',url:'/v1/sessions',payload:{}})).json();const headers={authorization:'Bearer '+session.session_token};
   const status=await app.inject({url:'/v1/evidence/status',headers});assert.equal(status.json().dataset.version,'test-1');assert.ok(!status.body.includes('PRIVATE'));
   const plan=await app.inject({method:'POST',url:'/v1/plans',headers,payload:{mode:'LIVE',origin:{longitude:88.43,latitude:22.57},destination:{longitude:88.43,latitude:22.58}}});
-  assert.equal(plan.statusCode,200);assert.equal(plan.json().routes[0].incident_count,1);assert.equal(plan.json().routes[0].decision.reasons.length,3);assert.ok(!plan.body.includes('PRIVATE'));
+  assert.equal(plan.statusCode,200);assert.equal(plan.json().routes[0].incident_count,1);assert.deepEqual(plan.json().routes[0].decision.reasons.map(r=>r.kind),['TIME','REPORTS','GAPS','ENVIRONMENT']);assert.ok(!plan.body.includes('PRIVATE'));
   assert.equal((await app.inject({url:'/v1/evidence/status'})).statusCode,401);
  }finally{await app.close();}
 });

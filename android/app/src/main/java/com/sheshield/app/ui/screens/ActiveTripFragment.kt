@@ -35,7 +35,7 @@ class ActiveTripFragment:ScreenFragment(){
     private var previewDialog:androidx.appcompat.app.AlertDialog?=null
     override fun onCreateView(inflater:LayoutInflater,container:ViewGroup?,state:Bundle?):View{
         val c=requireContext();val root=Ui.col(c);root.setBackgroundColor(Ui.color(c,R.color.background));root.addView(Ui.col(c,20).apply{addView(Ui.header(c,"Your journey",back={main.navigate(R.id.homeFragment)}))})
-        val frame=FrameLayout(c);val map=RouteMapRenderer(c,state);renderer=map;frame.addView(map.view,FrameLayout.LayoutParams(-1,-1))
+        val frame=FrameLayout(c);val map=RouteMapRenderer(c,state);map.onArea={a->WalkingDetails.area(c,a){id->requestAlternative(avoidAreaId=id)}};map.onPlace={p->WalkingDetails.place(c,p){id->requestAlternative(viaPlaceId=id)}};renderer=map;frame.addView(map.view,FrameLayout.LayoutParams(-1,-1))
         frame.addView(Ui.icon(c,R.drawable.ic_location,"Recenter on your position"){map.recenter()},FrameLayout.LayoutParams(Ui.dp(c,48),Ui.dp(c,48),Gravity.BOTTOM or Gravity.END).apply{setMargins(0,0,Ui.dp(c,16),Ui.dp(c,36))})
         frame.addView(Ui.button(c,"SOS",danger=true){sos()},FrameLayout.LayoutParams(Ui.dp(c,100),Ui.dp(c,54),Gravity.TOP or Gravity.END).apply{setMargins(0,Ui.dp(c,12),Ui.dp(c,16),0)})
         root.addView(frame,LinearLayout.LayoutParams(-1,0,1f))
@@ -44,6 +44,8 @@ class ActiveTripFragment:ScreenFragment(){
         strip=ExposureStrip(c);panel.addView(strip,LinearLayout.LayoutParams(-1,Ui.dp(c,32)))
         evidenceStatus=Ui.text(c,"",13,tint=R.color.on_surface_secondary);panel.addView(evidenceStatus)
         normal=Ui.col(c)
+        normal.addView(Ui.button(c,"Map details",true){renderer?.let{WalkingDetails.layer(c,it)}})
+        normal.addView(Ui.button(c,"Find a mapped place nearby",true){nearbyPlaces()})
         normal.addView(Ui.button(c,"Walk with me · set a check-in"){chooseWatch()})
         normal.addView(Ui.button(c,"Why this route? · sources & gaps",true){current?.route()?.let{RouteEvidenceDialog.show(c,it)}})
         normal.addView(Ui.button(c,"Share companion link",true){shareCompanion()})
@@ -54,8 +56,10 @@ class ActiveTripFragment:ScreenFragment(){
         check=Ui.col(c);check.addView(Ui.text(c,"Are you safe?",24,true));checkReason=Ui.text(c,"",15,tint=R.color.on_surface_secondary);check.addView(checkReason);countdown=Ui.text(c,"",28,true,R.color.risk_medium);check.addView(countdown)
         check.addView(Ui.button(c,"I'm safe"){main.tripViewModel.confirmSafe()})
         check.addView(Ui.button(c,"Request SOS now",danger=true){sos()})
+        check.addView(Ui.button(c,"I'm safe · change my route",true){runAction{repo.confirmSafe();repo.sync();if(repo.active()?.state==TripState.ACTIVE)chooseReroute()}})
         check.addView(Ui.button(c,"Find another way",true){chooseReroute()})
         watchStatus=Ui.text(c,"",14,true,R.color.risk_medium);check.addView(watchStatus)
+        check.addView(Ui.button(c,"Find a mapped place nearby",true){nearbyPlaces()})
         check.addView(Ui.button(c,"Call someone",true){callSomeone()})
         check.addView(Ui.button(c,"Share companion link",true){shareCompanion()})
         check.addView(Ui.button(c,"Stop sharing links",true){current?.let{t->runAction{repo.revokeShares(t);com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setMessage("All companion links for this journey have been revoked. Your check-in timer continues.").setPositiveButton("OK",null).show()}}})
@@ -75,7 +79,7 @@ class ActiveTripFragment:ScreenFragment(){
         if(t.lastUpdateMs>0)renderer?.location(LocationFix(t.lastLatitude,t.lastLongitude,t.accuracyMeters,t.lastUpdateMs))
         val age=if(t.lastUpdateMs>0)(System.currentTimeMillis()-t.lastUpdateMs)/1000 else Long.MAX_VALUE
         val problem=repo.prefs.getString("tracking_problem",null)?:repo.prefs.getString("sync_error",null)?:if(route==null)"Saved route unavailable. End this journey and calculate a new route." else null
-        status.text=when{repo.prefs.getBoolean("disarm_pending:${t.tripId}",false)->"Check-in saved on phone. Server cancellation pending; contacts may still be alerted.";t.isRehearsal->if(route?.isDemoData==true)"REHEARSAL · simulated location and contact alerts" else "PRACTICE · real route, simulated position and alerts";problem!=null->problem;age>60->"Location stale · precise segment alerts paused";t.syncStatus=="OFFLINE"->"Local monitoring · server unavailable";t.syncStatus=="PENDING"->"Monitoring · confirmation pending sync";else->"Monitoring · position updated ${age}s ago"}
+        status.text=when{repo.prefs.getBoolean("disarm_pending:${t.tripId}",false)->"Check-in saved on phone. Server cancellation pending; contacts may still be alerted.";t.isRehearsal->if(route?.isDemoData==true)"REHEARSAL · simulated location and contact alerts" else "PRACTICE · real route, simulated position and alerts";problem!=null->problem;age>60->"Location stale · precise segment alerts paused";t.syncStatus=="OFFLINE"->"Local monitoring · server unavailable";t.syncStatus=="PENDING"->"Monitoring · confirmation pending sync";else->"Monitoring · position updated ${age}s ago"+(if(repo.departureProtection(t).enabled)" · departure check-ins on" else "")}
         status.setTextColor(Ui.color(c,if(problem!=null||age>60&&!t.isRehearsal)R.color.risk_medium else R.color.risk_low))
         if(route!=null){val projection=TripMath.project(LatLng(t.lastLatitude,t.lastLongitude),route);val duration=route.durationSeconds*(projection.remainingMeters/route.distanceMeters).coerceIn(0.0,1.0)
             metrics.text="${(duration/60).toInt().coerceAtLeast(1)} min  ·  ${"%.1f".format(projection.remainingMeters/1000)} km"
@@ -93,7 +97,7 @@ class ActiveTripFragment:ScreenFragment(){
         recalc.isEnabled=!rerouting
         if(t.state==TripState.CHECK_IN_PENDING){
             val personal=t.checkInId.startsWith("watch-")
-            checkReason.text=if(personal)"Confirm when you are through this stretch." else "Your route enters an elevated reported-exposure segment. Please check in."
+            checkReason.text=if(repo.isDepartureCheck(t))"You moved away from your planned route. Confirm you are okay; you can then choose a new path." else if(personal)"Confirm when you are through this stretch." else "Your route enters an elevated reported-exposure segment. Please check in."
             val registered=repo.prefs.getString("server_event:${t.tripId}","")==t.checkInId
             val seen=repo.prefs.getLong("companion_seen:${t.tripId}",0)
             watchStatus.text=when{
@@ -103,6 +107,18 @@ class ActiveTripFragment:ScreenFragment(){
                 else->"SERVER TIMER SAVED · continues if this phone disconnects. Contact calls are configured; delivery is not guaranteed."
             }+if(registered&&seen>0)"\nSomeone with your link acknowledged at ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(seen))}." else if(!t.isRehearsal)"\nNo companion has acknowledged this check-in." else ""
             val seconds=((t.checkInDeadlineMs-System.currentTimeMillis())/1000).coerceAtLeast(0);countdown.text="${seconds/60}:${"%02d".format(seconds%60)} until contact escalation"}
+    }
+    private fun requestAlternative(avoidAreaId:String?=null,viaPlaceId:String?=null){val t=current?:return;if(rerouting)return
+        runAction{rerouting=true;try{showAlternatives(repo.reroute(t,avoidAreaId=avoidAreaId,viaPlaceId=viaPlaceId))}finally{rerouting=false}}
+    }
+    private fun nearbyPlaces(){val t=current?:return;val c=requireContext()
+        runAction{
+            val result=repo.nearby(t)
+            if(result.places.isEmpty()){com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setMessage("No nearby facilities were found in the map records. This does not establish that none exist. Your companion and call options remain available.").setPositiveButton("OK",null).show();return@runAction}
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setTitle("Mapped places nearby")
+                .setItems(result.places.map{"${it.name} · ${it.straightDistanceMeters} m map distance"}.toTypedArray()){_,i->WalkingDetails.place(c,result.places[i],if(result.stale)null else {id->requestAlternative(viaPlaceId=id)})}
+                .setNeutralButton("Source limits"){_,_->com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setMessage(result.notice+if(result.stale)"\nThis map snapshot is old; walking options via its places are disabled." else "").setPositiveButton("OK",null).show()}.setNegativeButton("Close",null).show()
+        }
     }
     private fun chooseReroute(){
         val trip=current?:return;val c=requireContext()

@@ -9,6 +9,7 @@ import com.sheshield.app.data.model.*
 import com.sheshield.app.data.repository.TripRepository
 import com.sheshield.app.util.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withLock
 
 class TripTrackingService:LifecycleService() {
     companion object {
@@ -30,6 +31,7 @@ class TripTrackingService:LifecycleService() {
     private var candidate=""
     private var consecutive=0
     private var callbackRegistered=false
+    private val fixMutex=kotlinx.coroutines.sync.Mutex()
     private val locationCallback=object:LocationCallback(){override fun onLocationResult(result:LocationResult){result.lastLocation?.let{loc->lifecycleScope.launch{handleFix(LocationFix(loc.latitude,loc.longitude,loc.accuracy,loc.time,loc.time))}}}}
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
         super.onStartCommand(intent,flags,startId)
@@ -84,18 +86,25 @@ class TripTrackingService:LifecycleService() {
         t.isRehearsal->"Rehearsal · simulated location"
         else->"Monitoring your journey"
     }
-    private suspend fun handleFix(fix:LocationFix){
-        val trip=repo.active()?:return;val route=trip.route()?:return
-        if(!TripMath.validFix(fix)){repo.prefs.edit().putString("tracking_problem","GPS is uncertain; segment alerts paused").apply();return}
+    private suspend fun handleFix(fix:LocationFix)=fixMutex.withLock {
+        val trip=repo.active()?:return@withLock;val route=trip.route()?:return@withLock
+        if(fix.timestampMs<=trip.lastUpdateMs)return@withLock
+        if(!TripMath.validFix(fix)){repo.prefs.edit().putString("tracking_problem","GPS is uncertain; precise route checks paused").apply();repo.prefs.edit().remove("departure_state:${trip.tripId}").apply();return@withLock}
         repo.prefs.edit().remove("tracking_problem").apply()
         val projection=TripMath.project(LatLng(fix.latitude,fix.longitude),route)
         repo.updateLocation(fix,projection.index)
-        if(repo.active()?.route()?.revision!=route.revision)return
+        if(repo.active()?.route()?.revision!=route.revision)return@withLock
         val segment=route.segments.firstOrNull{trip.isRehearsal&&route.isDemoData&&it.startIndex==projection.index&&it.level in listOf("MEDIUM","HIGH")}
         if(segment!=null&&projection.distanceMeters<50&&fix.accuracy<=50){
             if(candidate==segment.level)consecutive++ else{candidate=segment.level;consecutive=1}
             if(consecutive>=2&&trip.state==TripState.ACTIVE){repo.checkIn(segment.id);repo.active()?.takeIf{it.state==TripState.CHECK_IN_PENDING}?.let{NotificationHelper.showCheckInNotification(this,it)}}
         }else{candidate="";consecutive=0}
+        if(repo.departureProtection(trip).enabled&&trip.state==TripState.ACTIVE&&System.currentTimeMillis()>=repo.prefs.getLong("departure_grace:${trip.tripId}",0)){
+            val old=runCatching{repo.gson.fromJson(repo.prefs.getString("departure_state:${trip.tripId}",null),DepartureDetector.State::class.java)}.getOrNull()?:DepartureDetector.State()
+            val departure=DepartureDetector.update(old,fix,route,LatLng(trip.originLat,trip.originLng),LatLng(trip.destinationLat,trip.destinationLng),System.currentTimeMillis())
+            repo.prefs.edit().putString("departure_state:${trip.tripId}",repo.gson.toJson(departure.state)).apply()
+            if(departure.confirmed){repo.departureCheck(departure.state.readings,route.revision);repo.active()?.takeIf{it.state==TripState.CHECK_IN_PENDING}?.let{NotificationHelper.showCheckInNotification(this,it)};lifecycleScope.launch(Dispatchers.IO){repo.sync()}}
+        }
         val off=repo.prefs.getInt("off_route_fixes",0)
         repo.prefs.edit().putInt("off_route_fixes",if(projection.distanceMeters>60)off+1 else 0).apply()
         val near=TripMath.distance(LatLng(fix.latitude,fix.longitude),LatLng(trip.destinationLat,trip.destinationLng))<40

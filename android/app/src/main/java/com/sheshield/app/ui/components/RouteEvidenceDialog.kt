@@ -28,6 +28,7 @@ object RouteEvidenceDialog {
             body.addView(Ui.text(c,"${p.coveragePercent}% reporting coverage · ${p.longestUnknownMeters} m longest gap",14))
         }
         if(evaluated.isNotBlank())body.addView(Ui.text(c,"Evidence snapshot: ${evaluated.take(16).replace('T',' ')} UTC",13,tint=R.color.on_surface_secondary))
+        route.environment?.let{e->body.addView(Ui.button(c,"Lighting, walkways & nearby places",true){WalkingDetails.show(c,e)})}
         if(reports.isNotEmpty()){
             body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Source reports",20,true))
             reports.take(30).forEach{report(c,body,it,false)}

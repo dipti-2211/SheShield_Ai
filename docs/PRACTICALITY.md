@@ -58,3 +58,9 @@ A licensed local incident/observation partnership; independent validation of rev
 Calculate an actual short Salt Lake route and open **Why this route? · sources & gaps**. The first snapshot shows five attributable wider-area references, each with event-date precision, setting and a reason it cannot identify that lane. Two remain historical. Show the unknown stretch and use a personal watch or reroute based on the traveller's concern. Do not present a zero report count as a safe street.
 
 The [local review packet](../artifacts/saltlake-review/review.html), [accuracy report](../artifacts/saltlake-accuracy.json) and [partner drafts](PARTNER_REQUESTS.md) make the next data dependency reviewable. They do not substitute for a partnership or independent accuracy measurement.
+
+## Walking conditions and route departure
+
+The app now offers an optional departure check-in after 45 seconds of accurate GPS away from the chosen route, with a two- or five-minute response window and existing Cloud delivery on timeout. SAFE gives detour grace, and accepting a new route resets detection. Nearby mapped places can become real walking waypoints while preserving the destination and pending timer. This gives the traveller a useful action when they feel uneasy, even when crime geography remains unresolved.
+
+Area-report outlines stay separate from current danger claims. Lighting, pedestrian infrastructure, surroundings and facility sources are explained explicitly. The actual pilot routes still lack lighting/walkway evidence and mapped entrance connections, so preferences remain unavailable. Pedestrian activity is unknown. The remaining data work requires real provider records and independent validation; software alone cannot supply it. See [walking conditions and source limits](WALKING_CONDITIONS.md).

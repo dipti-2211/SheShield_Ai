@@ -9,6 +9,8 @@ interface SheShieldApi {
     @POST("v1/sessions") suspend fun enroll(@Body body: Map<String,String>): SessionResponse
     @GET("v1/places") suspend fun places(@Query("q") query: String): PlacesResponse
     @POST("v1/plans") suspend fun plan(@Body body: JsonObject): TripPlan
+    @POST("v1/plans/{id}/compare") suspend fun compare(@Path("id") id:String,@Body body:JsonObject):TripPlan
+    @POST("v1/trips/{id}/nearby") suspend fun nearby(@Path("id") id:String,@Body body:JsonObject):NearbyPlacesResponse
     @POST("v1/trips") suspend fun start(@Header("Idempotency-Key") key: String, @Body body: JsonObject): RemoteTrip
     @GET("v1/trips/{id}") suspend fun trip(@Path("id") id: String): RemoteTrip
     @POST("v1/trips/{id}/locations") suspend fun location(@Path("id") id: String, @Body fix: LocationFix): RemoteTrip

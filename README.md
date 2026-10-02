@@ -97,7 +97,9 @@ A ringing or completed call does not imply acknowledgement. The recipient presse
 
 ## Incident data and exposure
 
-Salt Lake uses the reviewed version 4 snapshot installed through `INCIDENT_DATA_PATH`. Five real news references retain their source/date/location limits and appear as area context. No street records, current conditions or complete reporting feeds have been acquired, so live safety remains **UNKNOWN** and alternatives sort by walking time.
+Salt Lake uses the reviewed version 4 snapshot installed through `INCIDENT_DATA_PATH`. Five real news references retain their source/date/location limits and appear as area context. No street records, current conditions or complete reporting feeds have been acquired, so live safety remains **UNKNOWN** and the tested pilot routes still sort by walking time.
+
+The new OSM walking snapshot adds named-area outlines, lighting/walkway facts and nearby mapped places. BG Block has one historical report association; it is not a current danger zone. Missing lighting, pedestrian activity, opening hours and entrance connections remain unknown. Condition preferences appear only when enough comparable information exists. Optional departure check-ins use sustained, accurate GPS and the existing registered alert timer. See **[docs/WALKING_CONDITIONS.md](docs/WALKING_CONDITIONS.md)** for sources, thresholds, operation and limitations.
 
 Read **[docs/INCIDENT_DATA.md](docs/INCIDENT_DATA.md)** for source research, admission, review, accuracy evaluation and publication. A 10 m calculation grid and Pinecone similarity cannot establish accurate incident geography. Dated conditions need actual provider observations and expire automatically. Accuracy is unmeasured until an independent reference sample exists.
 
@@ -121,4 +123,4 @@ npm test
 
 Android checks: `:app:assembleDebug :app:testDebugUnitTest :app:lintDebug`. Device migration test: `:app:assembleDebugAndroidTest`, then run `DatabaseRecoveryTest` using Android Studio or ADB instrumentation. Tests use a separate temporary database and preserve the app's real contacts/history.
 
-See **[docs/VALIDATION.md](docs/VALIDATION.md)** for the 80-test API suite, browser checks, emulator observations, screenshots and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).
+See **[docs/VALIDATION.md](docs/VALIDATION.md)** for the 94-test API suite, browser checks, emulator observations, screenshots and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).

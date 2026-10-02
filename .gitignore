@@ -31,3 +31,7 @@ __pycache__/
 # Keep original workflow as reference
 # SheShield.json is intentionally tracked (reference/backup)
 /.idea/
+
+# Raw map downloads contain contributor metadata; publish the stripped snapshot only.
+evidence/saltlake/environment/*.osm.xml
+evidence/saltlake/environment/*.osm.json

@@ -16,7 +16,7 @@ export function voiceAlertMessage(incident,now=Date.now()){
  const loc=incident.location;
  const locationText=loc?`Their last recorded position was latitude ${loc.latitude}, longitude ${loc.longitude}. ${spokenAge(loc,now)}`:'';
  return [
-  `SheShield alert. Your contact ${incident.trigger==='TIMEOUT'?'missed a safety check-in':'requested help'}.`,
+  `SheShield alert. Your contact ${incident.trigger==='TIMEOUT'?(incident.check_in_kind==='DEVIATION'?'missed a safety check-in after moving away from their planned route':'missed a safety check-in'):'requested help'}.`,
   locationText,
   'Please call them now. Press 1 to acknowledge you have received this alert.'
  ].filter(Boolean).join(' ');
@@ -24,5 +24,6 @@ export function voiceAlertMessage(incident,now=Date.now()){
 export function smsAlertMessage(incident){
  const loc=incident.location,recorded=recordedTime(loc);
  const locationText=loc?` Last recorded position (${recorded?recorded.toISOString():'recording time unknown'}): https://maps.google.com/?q=${loc.latitude},${loc.longitude}`:' No location was shared with this alert.';
- return 'SheShield SOS: Your contact '+(incident.trigger==='TIMEOUT'?'missed a safety check-in.':'requested help.')+locationText+' Please call your contact. SMS delivery does not confirm they are safe.';
+ const companion=incident.companion_url?` Private journey link: ${incident.companion_url}`:'';
+ return 'SheShield SOS: Your contact '+(incident.trigger==='TIMEOUT'?(incident.check_in_kind==='DEVIATION'?'missed a safety check-in after moving away from their planned route.':'missed a safety check-in.'):'requested help.')+locationText+companion+' Please call your contact. SMS delivery does not confirm they are safe.';
 }

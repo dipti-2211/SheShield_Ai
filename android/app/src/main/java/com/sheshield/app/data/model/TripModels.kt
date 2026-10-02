@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
 
 enum class TripState { IDLE, PLANNING, ACTIVE, CHECK_IN_PENDING, SOS_ACTIVE, COMPLETED, CANCELLED }
@@ -76,26 +77,66 @@ data class RouteOption(@SerializedName("route_id") val routeId: String, val labe
     val passport: EvidencePassport? = null,
     @SerializedName("context_evidence") val contextEvidence: List<Evidence>? = null,
     val observations: List<StreetObservation>? = null,
-    val decision: RouteDecision? = null) {
+    val decision: RouteDecision? = null, val environment:WalkingEnvironment? = null,
+    @SerializedName("via_place") val viaPlace:ViaPlace? = null) {
     val points get() = geometry.map { LatLng(it[1], it[0]) }
 }
+data class WalkingSummary(@SerializedName("mapped_meters") val mappedMeters:Int=0,
+    @SerializedName("lighting_known_meters") val lightingKnownMeters:Int=0,
+    @SerializedName("mapped_lit_meters") val mappedLitMeters:Int=0,
+    @SerializedName("mapped_unlit_meters") val mappedUnlitMeters:Int=0,
+    @SerializedName("unknown_lighting_meters") val unknownLightingMeters:Int=0,
+    @SerializedName("mapped_walkway_meters") val mappedWalkwayMeters:Int=0,
+    @SerializedName("restricted_meters") val restrictedMeters:Int=0,
+    @SerializedName("longest_facility_gap_meters") val longestFacilityGapMeters:Int=0)
+data class WalkingStretch(@SerializedName("from_meters") val fromMeters:Int,
+    @SerializedName("to_meters") val toMeters:Int,@SerializedName("start_index") val startIndex:Int,
+    @SerializedName("end_index") val endIndex:Int,val lighting:String,val walkway:String,val restricted:Boolean,
+    val phase:String,@SerializedName("source_url") val sourceUrl:String?,
+    @SerializedName("map_updated_at") val mapUpdatedAt:String?,@SerializedName("arrival_at") val arrivalAt:String?)
+data class ReportArea(val id:String,val name:String,val geometry:JsonObject,
+    @SerializedName("event_ids") val eventIds:List<String>,val historical:Boolean,
+    @SerializedName("source_url") val sourceUrl:String,@SerializedName("association_source_url") val associationSourceUrl:String,
+    @SerializedName("location_reason") val locationReason:String,
+    @SerializedName("intersection_meters") val intersectionMeters:Int)
+data class MappedPlace(val id:String,val name:String,val point:List<Double>,val category:String,
+    @SerializedName("source_url") val sourceUrl:String,@SerializedName("opening_hours") val openingHours:String?,
+    @SerializedName("hours_status") val hoursStatus:String,@SerializedName("entrance_status") val entranceStatus:String,
+    @SerializedName("straight_distance_meters") val straightDistanceMeters:Int,
+    @SerializedName("walking_connection_meters") val walkingConnectionMeters:Int=0,
+    @SerializedName("estimated_arrival_at") val estimatedArrivalAt:String?,
+    @SerializedName("connection_status") val connectionStatus:String?)
+data class PreferenceAvailability(val lighting:Boolean=false,@SerializedName("nearby_places") val nearbyPlaces:Boolean=false)
+data class Surrounding(val id:String,val name:String,val kind:String,@SerializedName("source_url") val sourceUrl:String)
+data class WalkingEnvironment(val version:String?,@SerializedName("collected_at") val collectedAt:String?,
+    @SerializedName("evaluated_at") val evaluatedAt:String?,@SerializedName("valid_until") val validUntil:String?,
+    val stale:Boolean,val summary:WalkingSummary,val stretches:List<WalkingStretch>?,
+    @SerializedName("report_areas") val reportAreas:List<ReportArea>?,val facilities:List<MappedPlace>?,
+    @SerializedName("nearby_places") val nearbyPlaces:List<MappedPlace>?,val surroundings:List<Surrounding>?,
+    val activity:String?,val limitations:String?,val preference:String?,
+    @SerializedName("preference_availability") val preferenceAvailability:PreferenceAvailability?)
+data class ViaPlace(val id:String,val name:String,val point:List<Double>,@SerializedName("source_url") val sourceUrl:String)
+data class NearbyPlacesResponse(val places:List<MappedPlace>,val notice:String,val stale:Boolean)
 data class TripPlan(val id: String, val mode: String, val origin: Place, val destination: Place,
     val routes: List<RouteOption>, val attribution: String = "OpenStreetMap contributors",
     @SerializedName("geometry_source") val geometrySource: String = "",
-    @SerializedName("expires_at_ms") val expiresAtMs: Long = 0)
+    @SerializedName("expires_at_ms") val expiresAtMs: Long = 0, val preference:String?=null,
+    @SerializedName("avoid_area_ids") val avoidAreaIds:List<String>?=null)
 data class LocationFix(val latitude: Double, val longitude: Double,
     @SerializedName("accuracy_meters") val accuracy: Float = 0f, @SerializedName("timestamp_ms") val timestampMs: Long = System.currentTimeMillis(),
     val sequence: Long = 0)
 data class CheckInEvent(val id: String, @SerializedName("segment_id") val segmentId: String,
     val status: String, @SerializedName("deadline_ms") val deadlineMs: Long,
     @SerializedName("delivery_ready") val deliveryReady: Boolean = false,
-    @SerializedName("companion_seen_at_ms") val companionSeenAtMs: Long? = null)
+    @SerializedName("companion_seen_at_ms") val companionSeenAtMs: Long? = null, val kind:String? = null)
+data class DepartureProtection(val enabled:Boolean=false,@SerializedName("window_seconds") val windowSeconds:Int=120)
 data class RemoteTrip(val id: String, val mode: String, val state: String, val origin: Place, val destination: Place,
     val route: RouteOption, val contacts: List<TrustedContact> = emptyList(),
     @SerializedName("last_location") val lastLocation: LocationFix? = null,
     @SerializedName("check_in") val checkIn: CheckInEvent? = null, @SerializedName("sos_id") val sosId: String? = null,
     @SerializedName("started_at_ms") val startedAtMs: Long, @SerializedName("ended_at_ms") val endedAtMs: Long? = null,
-    val version: Int = 0)
+    val version: Int = 0, @SerializedName("departure_protection") val departureProtection:DepartureProtection? = null,
+    @SerializedName("departure_grace_until_ms") val departureGraceUntilMs:Long=0)
 @Entity(tableName = "active_trip")
 data class ActiveTrip(@PrimaryKey val tripId: String, val sessionToken: String = "", val originLat: Double,
     val originLng: Double, val destinationLat: Double, val destinationLng: Double, val destinationLabel: String,

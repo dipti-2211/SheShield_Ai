@@ -7,6 +7,9 @@ import {auditDataset,assessRoute,labelRoutes} from './evidence.js';
 import {ApiError,routeLive,searchPlaces} from './providers.js';
 import {freshOrigin,pointAhead,avoidancePolygon,avoidsAreas,differentAhead} from './rerouting.js';
 import {voiceAlertMessage,smsAlertMessage} from './alert_messages.js';
+import {protection,validateDeparture,DEVIATION_POLICY} from './deviation.js';
+import {loadWalkingData,enrichWalkingRoute,rankWalkingRoutes,nearbyPlaces} from './walking_environment.js';
+import {routePolygonStretches,insidePolygon} from './geography.js';
 
 const digest=s=>createHash('sha256').update(s).digest('hex');
 const terminal=new Set(['COMPLETED','CANCELLED']);
@@ -24,6 +27,13 @@ export function buildApp(options={}) {
  let data=auditDataset({},now()),dataError=null;
  if(options.evidenceDataset){data=auditDataset(options.evidenceDataset,now());dataError=data.audit.error||null;}
  if(config.INCIDENT_DATA_PATH){try{const bytes=readFileSync(config.INCIDENT_DATA_PATH);data=auditDataset(JSON.parse(bytes),now());dataError=data.audit.error||null;if(data.metadata)data.metadata.sha256=createHash('sha256').update(bytes).digest('hex');}catch(e){dataError='Incident dataset could not be read or validated.';}}
+ let environment=loadWalkingData(options.walkingDataset,now()),environmentError=null;
+ if(config.WALKING_DATA_PATH){try{environment=loadWalkingData(JSON.parse(readFileSync(config.WALKING_DATA_PATH)),now());if(!environment.version)environmentError='Walking map dataset invalid.';}catch{environmentError='Walking map dataset unavailable.';}}
+ function compareRoutes(routes,at,preference='FASTEST',extra=5){return rankWalkingRoutes(labelRoutes(routes).map(r=>r.is_demo_data?r:enrichWalkingRoute(r,environment,data,at)),preference,extra);}
+ function comparisonInput(b){if(!['FASTEST','LIGHTING','NEARBY_PLACES'].includes(b.preference||'FASTEST')||!Number.isInteger(b.max_extra_minutes??5)||(b.max_extra_minutes??5)<0||(b.max_extra_minutes??5)>15)throw new ApiError('INVALID_PREFERENCE','Choose a route preference and up to 15 additional minutes.');return {preference:b.preference||'FASTEST',extra:b.max_extra_minutes??5};}
+ function areaGeometry(ids){if(!Array.isArray(ids)||ids.length>3)throw new ApiError('INVALID_AVOIDANCE','Choose up to three displayed report areas.');return ids.map(id=>{const ref=environment.report_areas.find(a=>a.id===id),a=environment.areas.find(a=>a.id===ref?.area_id);if(!a)throw new ApiError('INVALID_AVOIDANCE','This report area is unavailable.');return a.geometry;});}
+ function combinedAvoidance(circles,polygons){const all=[...polygons,...(circles.length?[avoidancePolygon(circles)]:[])].flatMap(g=>g.type==='Polygon'?[g.coordinates]:g.coordinates);return all.length===1?{type:'Polygon',coordinates:all[0]}:all.length?{type:'MultiPolygon',coordinates:all}:null;}
+ function checkAreaEndpoints(polygons,origin,destination){if(polygons.some(g=>insidePolygon(origin,g)||insidePolygon(destination,g)))throw new ApiError('AREA_INCLUDES_ENDPOINT','Your start or destination is inside this area. Whole-area avoidance is unavailable; choose another route or keep your personal watch active.',422);}
  const cache=new Map(),rate=new Map();let lastSearch=0;
  app.addContentTypeParser('application/x-www-form-urlencoded',{parseAs:'string'},(_,body,done)=>done(null,Object.fromEntries(new URLSearchParams(body))));
  app.setErrorHandler((error,request,reply)=>reply.code(error.status||error.statusCode||500).send({code:error.code||'INTERNAL_ERROR',message:error.status||error.statusCode?error.message:'Something went wrong. Try again.',retryable:error.retryable||false,request_id:request.id}));
@@ -85,7 +95,8 @@ export function buildApp(options={}) {
   const mode=t?.mode||b.mode;const existing=!t&&store.list('sos',owner).find(s=>!s.trip_id&&s.mode===mode&&!s.cancelled&&['REQUESTED','CONTACTING','PENDING','REQUEST_UNKNOWN'].includes(s.status)&&now()-s.created_at_ms<300000);if(existing)return existing;if(!['LIVE','REHEARSAL'].includes(mode))throw new ApiError('INVALID_MODE','Choose live or rehearsal mode.');
   const list=mode==='REHEARSAL'?[{name:'Aditi (demo)',phone:'+910000000001'},{name:'Riya (demo)',phone:'+910000000002'}]:contacts(t?.contacts||b.contacts||[]);
   const loc=b.location||t?.last_location||null;if(loc)location(loc);
-  const incident={id:id(),owner,trip_id:t?.id||null,mode,trigger:b.trigger==='TIMEOUT'?'TIMEOUT':'MANUAL',location:loc,contacts:list,status:'REQUESTED',cancelled:false,attempt_ids:[],timeline:[],created_at_ms:now(),updated_at_ms:now()};
+  const incident={id:id(),owner,trip_id:t?.id||null,mode,trigger:b.trigger==='TIMEOUT'?'TIMEOUT':'MANUAL',check_in_kind:b.trigger==='TIMEOUT'?(t?.check_in?.kind||(t?.departure_protection?.enabled&&b.check_in_kind==='DEVIATION'?'DEVIATION':null)):null,location:loc,contacts:list,status:'REQUESTED',cancelled:false,attempt_ids:[],timeline:[],created_at_ms:now(),updated_at_ms:now()};
+  if(mode==='LIVE'&&t&&list.length&&config.PUBLIC_BASE_URL?.startsWith('https://')){const token=randomBytes(24).toString('hex');store.put('share',{id:digest(token),owner,trip_id:t.id,expires_at_ms:now()+7200000,purpose:'ALERT'});incident.companion_url=`${config.PUBLIC_BASE_URL.replace(/\/$/,'')}/share/${token}`;}
   addTimeline(incident,'REQUESTED',mode==='REHEARSAL'?'Rehearsal alert created. No real messages or calls.':'SOS saved. Preparing available contact channels.');
   if(!list.length){incident.status='NO_CONTACTS';addTimeline(incident,'NO_CONTACTS','No trusted contacts configured. The emergency dialer is available.');}
   store.put('sos',incident);if(t){t.state='SOS_ACTIVE';t.sos_id=incident.id;if(t.check_in)t.check_in.status='SOS';saveTrip(t);}if(list.length)createAttempt(incident);createSmsAttempts(incident);return incident;
@@ -105,6 +116,7 @@ export function buildApp(options={}) {
  app.get('/health',async()=>({status:'ok',version:'2.0.0'}));
  app.get('/ready',async()=>({status:'ok',routing:Boolean(config.ORS_API_KEY),risk_data:data.incidents.length>0,evidence_context:data.context.length,street_reports:data.incidents.length,data_error:dataError,n8n:Boolean(config.N8N_WEBHOOK_URL&&config.WORKER_TOKEN),callbacks:Boolean(config.PUBLIC_BASE_URL&&config.TWILIO_AUTH_TOKEN),live_alerts:config.LIVE_ALERTS_ENABLED==='true',cloud_sms:config.LIVE_SMS_ENABLED==='true'&&config.LIVE_ALERTS_ENABLED==='true',rehearsal:true}));
  app.get('/v1/evidence/status',{preHandler:auth},async()=>({audit:data.audit,sources:data.sources,coverage_areas:data.areas.filter(a=>now()-Date.parse(a.updated_at)<=30*86400000&&now()-Date.parse(a.window_end)<=30*86400000).length,dataset:data.metadata||null,scopes:data.scopes||[],observations:data.observations?.filter(o=>Date.parse(o.expires_at)>now()).length||0,
+   walking_environment:{dataset_version:environment.version,collected_at:environment.collected_at,audit:environment.audit,error:environmentError},
    policy:'Live safety is unknown. Street attribution requires two location reviews, named-street agreement and reviewed geometry. Area search bounds never establish incident location or coverage.'}));
  app.post('/v1/sessions',async(req)=>{
   if(config.ENROLLMENT_CODE&&req.body?.enrollment_code!==config.ENROLLMENT_CODE)throw new ApiError('ENROLLMENT_REQUIRED','Enter the API enrollment code.',403);
@@ -119,17 +131,25 @@ export function buildApp(options={}) {
  app.post('/v1/plans',{preHandler:auth},async(req)=>{
   const b=req.body||{},mode=b.mode,recorded=mode==='REHEARSAL'&&b.recorded_scenario===true;if(!['LIVE','REHEARSAL'].includes(mode))throw new ApiError('INVALID_MODE','Choose live or rehearsal mode.');
   const origin=recorded?scenario.origin:location(b.origin),destination=recorded?scenario.destination:location(b.destination);
-  const routes=recorded?structuredClone(scenario.routes):await (options.routeLive||routeLive)(point(origin),point(destination),config.ORS_API_KEY);
+  const prefs=comparisonInput(b),areaIds=b.avoid_area_ids||[],polygons=areaGeometry(areaIds);checkAreaEndpoints(polygons,point(origin),point(destination));
+  const avoid=combinedAvoidance([],polygons);
+  const routes=recorded?structuredClone(scenario.routes):await (options.routeLive||routeLive)(point(origin),point(destination),config.ORS_API_KEY,avoid?{avoid_polygons:avoid}:{});
+  if(!recorded&&polygons.some(g=>routes.some(r=>routePolygonStretches(r.geometry,g).length)))throw new ApiError('NO_ALTERNATIVE','The returned walking routes still enter the selected area. Your prior plan remains available.',422);
   const at=recorded?Date.parse(scenario.evaluated_at):now();
-  const scored=labelRoutes(routes.map(r=>assessRoute(r,data,at,recorded?scenario.incidents:null)));
-  const plan={id:id(),owner:req.owner,mode,origin,destination,routes:scored,created_at_ms:now(),expires_at_ms:now()+3600000,attribution:recorded?scenario.attribution:'OpenRouteService / OpenStreetMap contributors',geometry_source:recorded?scenario.geometry_source:'OpenRouteService walking directions'};
+  const scored=compareRoutes(routes.map(r=>assessRoute(r,data,at,recorded?scenario.incidents:null)),at,prefs.preference,prefs.extra);
+  const plan={id:id(),owner:req.owner,mode,origin,destination,preference:prefs.preference,max_extra_minutes:prefs.extra,avoid_area_ids:areaIds,routes:scored,created_at_ms:now(),expires_at_ms:now()+3600000,attribution:recorded?scenario.attribution:'OpenRouteService / OpenStreetMap contributors',geometry_source:recorded?scenario.geometry_source:'OpenRouteService walking directions'};
   return store.put('plan',plan);
+ });
+ app.post('/v1/plans/:id/compare',{preHandler:auth},async req=>{
+  const plan=owned('plan',req.params.id,req.owner);if(plan.expires_at_ms<now())throw new ApiError('PLAN_EXPIRED','Calculate routes again.',409);
+  const prefs=comparisonInput(req.body||{});plan.routes=compareRoutes(plan.routes,now(),prefs.preference,prefs.extra);plan.preference=prefs.preference;plan.max_extra_minutes=prefs.extra;return store.put('plan',plan);
  });
  app.post('/v1/trips',{preHandler:auth},async(req)=>command(req,()=>{
   const b=req.body||{},plan=owned('plan',b.plan_id,req.owner);if(plan.expires_at_ms<now())throw new ApiError('PLAN_EXPIRED','Calculate routes again.',409);
   const existing=store.list('trip',req.owner).find(t=>!terminal.has(t.state));if(existing)throw new ApiError('ACTIVE_TRIP_EXISTS','Finish the current journey first.',409);
   const route=plan.routes.find(r=>r.route_id===b.route_id);if(!route)throw new ApiError('INVALID_ROUTE','Select a route from this plan.');
-  return saveTrip({id:id(),owner:req.owner,mode:plan.mode,state:'ACTIVE',origin:plan.origin,destination:plan.destination,route,contacts:plan.mode==='REHEARSAL'?[]:contacts(b.contacts||[]),last_location:null,check_in:null,sos_id:null,started_at_ms:now(),ended_at_ms:null,last_sequence:-1,version:0});
+  if(!route.is_demo_data){route.environment=enrichWalkingRoute(route,environment,data,now()).environment;}
+  return saveTrip({id:id(),owner:req.owner,mode:plan.mode,state:'ACTIVE',origin:plan.origin,destination:plan.destination,route,preference:plan.preference,max_extra_minutes:plan.max_extra_minutes,avoid_area_ids:plan.avoid_area_ids||[],departure_protection:protection(b.departure_protection),contacts:plan.mode==='REHEARSAL'?[]:contacts(b.contacts||[]),last_location:null,check_in:null,sos_id:null,started_at_ms:now(),ended_at_ms:null,last_sequence:-1,version:0});
  }));
  app.get('/v1/trips',{preHandler:auth},async req=>({trips:store.list('trip',req.owner).sort((a,b)=>b.started_at_ms-a.started_at_ms)}));
  app.get('/v1/trips/:id',{preHandler:auth},async req=>owned('trip',req.params.id,req.owner));
@@ -141,10 +161,12 @@ export function buildApp(options={}) {
   const t=activeTrip(req.params.id,req.owner),b=req.body||{};
   if(t.state==='SOS_ACTIVE')throw new ApiError('SOS_ACTIVE','An SOS incident is already active.',409);
   if(t.check_in?.status==='PENDING')return t;
-  const personal=b.kind==='PERSONAL';
-  if(b.kind!=null&&!['PERSONAL','SEGMENT'].includes(b.kind))throw new ApiError('INVALID_KIND','Choose a personal or route check-in.');
+  const departure=b.kind==='DEVIATION',personal=b.kind==='PERSONAL'||departure;
+  const departureFix=departure?validateDeparture(t,b,now()):null;
+  if(b.kind!=null&&!['PERSONAL','SEGMENT','DEVIATION'].includes(b.kind))throw new ApiError('INVALID_KIND','Choose a personal or route check-in.');
   const segment=personal?null:t.route.segments.find(s=>s.segment_id===b.segment_id);
   if(!personal&&(t.mode!=='REHEARSAL'||t.route.is_demo_data!==true||!segment||!['MEDIUM','HIGH'].includes(segment.risk_level)))throw new ApiError('INVALID_SEGMENT','This segment does not require a check-in. Use a personal safety watch for live journeys.');
+  if(departureFix)t.last_location=departureFix;
   if(b.location){const fix=location(b.location);if(!Number.isFinite(fix.timestamp_ms)||Math.abs(now()-fix.timestamp_ms)>600000||!(fix.accuracy_meters>=0&&fix.accuracy_meters<=50))throw new ApiError('INVALID_FIX','Check-ins require a recent, accurate location.');t.last_location=fix;}
   if(!personal&&(!t.last_location||segmentDistanceKm(point(t.last_location),t.route.geometry[segment.start_index],t.route.geometry[segment.end_index])>.1))throw new ApiError('LOCATION_MISMATCH','The current location is outside this segment.');
   const seconds=personal?b.window_seconds:(t.mode==='REHEARSAL'?20:300);
@@ -154,7 +176,7 @@ export function buildApp(options={}) {
   const allowed=(config.TEST_RECIPIENT_ALLOWLIST||'').split(',').map(x=>x.trim());
   const eligible=t.contacts.filter(c=>allowed.includes(c.phone)).length;
   const deliveryReady=t.mode==='REHEARSAL'||Boolean(config.LIVE_ALERTS_ENABLED==='true'&&config.N8N_WEBHOOK_URL&&config.WORKER_TOKEN&&config.PUBLIC_BASE_URL&&config.TWILIO_AUTH_TOKEN&&eligible>0);
-  t.check_in={id:String(b.event_id||id()),kind:personal?'PERSONAL':'SEGMENT',segment_id:personal?'personal':b.segment_id,status:'PENDING',created_at_ms:Math.min(now(),deadline-windowMs),deadline_ms:deadline,server_registered_at_ms:now(),delivery_ready:deliveryReady,eligible_contacts:eligible,companion_seen_at_ms:null};
+  t.check_in={id:String(b.event_id||id()),kind:departure?'DEVIATION':personal?'PERSONAL':'SEGMENT',segment_id:departure?'departure':personal?'personal':b.segment_id,status:'PENDING',created_at_ms:Math.min(now(),deadline-windowMs),deadline_ms:deadline,server_registered_at_ms:now(),delivery_ready:deliveryReady,eligible_contacts:eligible,companion_seen_at_ms:null};
   t.state='CHECK_IN_PENDING';return saveTrip(t);
  }));
  app.post('/v1/trips/:id/check-ins/:eventId/resolve',{preHandler:auth},async req=>command(req,()=>{
@@ -164,6 +186,7 @@ export function buildApp(options={}) {
    if(at>t.check_in.deadline_ms){if(t.check_in.status==='PENDING')createSos(req.owner,{trip_id:t.id,trigger:'TIMEOUT'});return store.get('trip',t.id);}
    if(t.check_in.status==='SOS'){const incident=t.sos_id&&store.get('sos',t.sos_id);if(incident?.trigger!=='TIMEOUT')return t;cancelIncident(incident);t.sos_id=null;}
    else if(t.check_in.status!=='PENDING')return t;
+   if(t.check_in.kind==='DEVIATION')t.departure_grace_until_ms=now()+DEVIATION_POLICY.grace_ms;
    t.check_in.status='SAFE';t.state='ACTIVE';return saveTrip(t);
   }
   if(t.check_in.status!=='PENDING')return t;
@@ -174,10 +197,18 @@ export function buildApp(options={}) {
   if(t.sos_id)cancelIncident(owned('sos',t.sos_id,req.owner));t.state=req.body?.cancelled?'CANCELLED':'COMPLETED';t.ended_at_ms=now();if(t.check_in?.status==='PENDING')t.check_in.status='CANCELLED';return saveTrip(t);
  }));
  app.delete('/v1/trips/:id',{preHandler:auth},async req=>{const t=owned('trip',req.params.id,req.owner);if(!terminal.has(t.state))throw new ApiError('TRIP_ACTIVE','End this journey before deleting it.',409);store.remove('trip',t.id);return {status:'DELETED'};});
+ app.post('/v1/trips/:id/nearby',{preHandler:auth},async req=>{
+  const t=activeTrip(req.params.id,req.owner),origin=freshOrigin(req.body?.origin,now());
+  return {places:nearbyPlaces(environment,origin,now()),origin:req.body.origin,dataset_version:environment.version,collected_at:environment.collected_at,stale:!environment.collected_at||now()-Date.parse(environment.collected_at)>30*86400000,notice:'Mapped facilities; map distance is not walking distance. Opening hours, public entrance and assistance are unconfirmed. Choose a place to request walking access.'};
+ });
  app.post('/v1/trips/:id/reroute',{preHandler:auth},async req=>{
   const t=activeTrip(req.params.id,req.owner);if(t.mode==='REHEARSAL')throw new ApiError('DEMO_ROUTE','Rehearsal uses a recorded route.',409);
   if(!['ACTIVE','CHECK_IN_PENDING'].includes(t.state))throw new ApiError('SOS_ACTIVE','Resolve the current SOS before changing route.',409);
-  const origin=freshOrigin(req.body?.origin,now()),areas=[...(t.avoid_areas||[])];
+  const origin=freshOrigin(req.body?.origin,now()),areas=[...(t.avoid_areas||[])],areaIds=[...(t.avoid_area_ids||[])];
+  if(req.body?.avoid_area_id&&!areaIds.includes(req.body.avoid_area_id))areaIds.push(req.body.avoid_area_id);
+  const polygons=areaGeometry(areaIds);checkAreaEndpoints(polygons,origin,point(t.destination));
+  const via=req.body?.via_place_id?environment.places.find(p=>p.id===req.body.via_place_id):null;
+  if(req.body?.via_place_id&&(!via||!environment.collected_at||now()-Date.parse(environment.collected_at)>30*86400000||segmentDistanceKm(origin,via.point,via.point)*1000>800))throw new ApiError('PLACE_UNAVAILABLE','This facility is unavailable, too far away or from an old map snapshot.',422);
   if(req.body?.avoid_ahead_meters!=null){
    const ahead=req.body.avoid_ahead_meters;if(!Number.isFinite(ahead)||ahead<80||ahead>500)throw new ApiError('INVALID_AVOIDANCE','Choose a stretch 80–500 m ahead.');
    if(areas.length>=5)throw new ApiError('AVOIDANCE_LIMIT','This journey already avoids five areas. Start a new journey to change them.',409);
@@ -185,13 +216,15 @@ export function buildApp(options={}) {
    if(segmentDistanceKm(origin,center,center)*1000<65||segmentDistanceKm(point(t.destination),center,center)*1000<65)throw new ApiError('AVOIDANCE_TOO_CLOSE','That area includes your position or destination. Choose another stretch.',422);
    areas.push({center,radius_meters:35});
   }
-  const routes=await (options.routeLive||routeLive)(origin,point(t.destination),config.ORS_API_KEY,areas.length?{avoid_polygons:avoidancePolygon(areas)}:{});
+  const avoid=combinedAvoidance(areas,polygons);
+  const routes=await (options.routeLive||routeLive)(origin,point(t.destination),config.ORS_API_KEY,{...(avoid?{avoid_polygons:avoid}:{}),...(via?{via:via.point}:{})});
   const latest=activeTrip(t.id,req.owner);if(latest.route.route_revision!==t.route.route_revision||!['ACTIVE','CHECK_IN_PENDING'].includes(latest.state))throw new ApiError('ROUTE_CHANGED','The journey changed while calculating. Request alternatives again.',409);
-  const usable=routes.filter(r=>(r.origin_snap_meters||0)<=50&&avoidsAreas(r,areas)&&differentAhead(r,t.route,origin));
+  const usable=routes.filter(r=>(r.origin_snap_meters||0)<=50&&avoidsAreas(r,areas)&&polygons.every(g=>!routePolygonStretches(r.geometry,g).length)&&(via?r.geometry.some((p,i)=>i>0&&segmentDistanceKm(via.point,r.geometry[i-1],p)*1000<=40):differentAhead(r,t.route,origin)));
   if(!usable.length)throw new ApiError('NO_ALTERNATIVE','No different walking route was found from your position with these avoidances. Your current route and check-in remain active.',422,true);
-  const scored=labelRoutes(usable.map(r=>({...assessRoute(r,data,now()),route_revision:(t.route.route_revision||1)+1})));
-  const proposal={id:t.id,owner:t.owner,proposal_id:id(),routes:scored,route:scored[0],origin:req.body.origin,avoid_areas:areas,base_revision:t.route.route_revision,expires_at_ms:now()+300000};store.put('reroute',proposal);
-  return {...scored[0],trip_id:t.id,proposal_id:proposal.proposal_id,routes:scored,origin:proposal.origin,avoid_areas:areas,expires_at_ms:proposal.expires_at_ms};
+  const scored=compareRoutes(usable.map(r=>({...assessRoute(r,data,now()),route_revision:(t.route.route_revision||1)+1})),now(),t.preference||'FASTEST',t.max_extra_minutes??5);
+  if(via)scored.forEach(r=>{r.via_place={id:via.id,name:via.name,point:via.point,source_url:via.source_url,entrance_status:via.entrance_status};r.decision.summary=`Walk via ${via.name} towards your destination. Check its public entrance and hours; assistance is unconfirmed.`;});
+  const proposal={id:t.id,owner:t.owner,proposal_id:id(),routes:scored,route:scored[0],origin:req.body.origin,avoid_areas:areas,avoid_area_ids:areaIds,base_revision:t.route.route_revision,expires_at_ms:now()+300000};store.put('reroute',proposal);
+  return {...scored[0],trip_id:t.id,proposal_id:proposal.proposal_id,routes:scored,origin:proposal.origin,avoid_areas:areas,avoid_area_ids:areaIds,expires_at_ms:proposal.expires_at_ms};
  });
  app.post('/v1/trips/:id/route',{preHandler:auth},async req=>command(req,()=>{
   const t=activeTrip(req.params.id,req.owner),proposal=owned('reroute',t.id,req.owner),body=req.body||{};
@@ -201,7 +234,7 @@ export function buildApp(options={}) {
   if(!t.last_location)throw new ApiError('FRESH_GPS_REQUIRED','Wait for a GPS update before accepting this route.',422,true);
   const position=freshOrigin(t.last_location,now());
   if(segmentDistanceKm(position,point(proposal.origin),point(proposal.origin))*1000>75)throw new ApiError('POSITION_CHANGED','You moved away from the proposed start. Find alternatives again.',409,true);
-  t.route=selected;t.avoid_areas=proposal.avoid_areas;store.remove('reroute',t.id);return saveTrip(t);
+  t.route=selected;t.departure_grace_until_ms=now()+60000;t.avoid_areas=proposal.avoid_areas;t.avoid_area_ids=proposal.avoid_area_ids||[];store.remove('reroute',t.id);return saveTrip(t);
  }));
  app.post('/v1/sos',{preHandler:auth},async req=>command(req,()=>presentSos(createSos(req.owner,req.body||{}))));
  app.get('/v1/sos/:id',{preHandler:auth},async req=>presentSos(owned('sos',req.params.id,req.owner)));
