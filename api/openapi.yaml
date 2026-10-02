@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: SheShield API
-  version: 2.0.0
+  version: 3.0.0
   description: Installation-owned journey state and idempotent commands. Coordinates in route geometry are [longitude, latitude].
 servers:
   - url: http://localhost:8787
@@ -31,6 +31,10 @@ paths:
       responses:
         '200': {description: Random session_token for this installation}
         '403': {$ref: '#/components/responses/Error'}
+  /v1/evidence/status:
+    get:
+      responses:
+        '200': {description: Incident admission counts, rejection reasons, source registry and coverage area count; metadata validation does not authenticate source truth}
   /v1/places:
     get:
       parameters:
@@ -112,14 +116,16 @@ paths:
           application/json:
             schema:
               type: object
-              required: [event_id, segment_id]
+              required: [event_id]
               properties:
                 event_id: {type: string}
-                segment_id: {type: string}
+                segment_id: {type: string, description: Required for SEGMENT check-ins}
+                kind: {type: string, enum: [SEGMENT, PERSONAL], default: SEGMENT}
+                window_seconds: {type: integer, minimum: 20, maximum: 1800, description: Required for PERSONAL; live minimum 60 seconds, rehearsal minimum 20}
                 deadline_ms: {type: integer, format: int64}
                 location: {$ref: '#/components/schemas/Fix'}
       responses:
-        '200': {description: Registered check-in and persistent deadline}
+        '200': {description: Persistent deadline plus server_registered_at_ms, delivery_ready, eligible_contacts and companion_seen_at_ms; a pending check-in cannot be overwritten}
         '409': {$ref: '#/components/responses/Error'}
   /v1/trips/{id}/check-ins/{eventId}/resolve:
     parameters:
@@ -159,9 +165,15 @@ paths:
       requestBody:
         content:
           application/json:
-            schema: {type: object, required: [origin], properties: {origin: {$ref: '#/components/schemas/Place'}}}
+            schema:
+              type: object
+              required: [origin]
+              properties:
+                origin: {$ref: '#/components/schemas/Fix'}
+                avoid_ahead_meters: {type: number, minimum: 80, maximum: 500, description: Avoid a 35 m radius around this distance ahead on the current route; prior accepted avoidances remain}
       responses:
-        '200': {description: Stored route proposal, valid for five minutes}
+        '200': {description: Stored proposal_id, trip_id, routes, origin, avoid_areas and expires_at_ms. Valid for five minutes. Includes first-route fields for compatibility. Requires GPS age at most 60 seconds and accuracy at most 50 m; returns only routes with a different upcoming stretch}
+        '422': {$ref: '#/components/responses/Error'}
   /v1/trips/{id}/route:
     parameters:
       - {$ref: '#/components/parameters/Id'}
@@ -171,16 +183,27 @@ paths:
       requestBody:
         content:
           application/json:
-            schema: {type: object, required: [route], properties: {route: {type: object, required: [route_revision], properties: {route_revision: {type: integer}}}}}
+            schema:
+              type: object
+              required: [proposal_id, route_id, route_revision]
+              properties:
+                proposal_id: {type: string}
+                route_id: {type: string}
+                route_revision: {type: integer}
+                expected_check_in_id: {type: string, nullable: true, description: Current pending check-in ID or empty string/null; prevents accepting with an outdated watch state}
       responses:
-        '200': {description: Accepted server-stored proposal; client scores and geometry are not trusted}
+        '200': {description: Accepted server-stored route with destination, contacts, trip identity and existing check-in deadline preserved. Requires fresh GPS within 75 m of proposal start; client scores and geometry are not trusted}
+        '409': {$ref: '#/components/responses/Error'}
   /v1/trips/{id}/share:
     parameters:
       - {$ref: '#/components/parameters/Id'}
     post:
       responses:
-        '200': {description: Private read-only URL, expires in two hours}
+        '200': {description: Private URL, expires in two hours; permits viewing and acknowledgement of the current watch only}
         '503': {$ref: '#/components/responses/Error'}
+    delete:
+      responses:
+        '200': {description: All links for this owned journey revoked; the watch deadline continues}
   /v1/sos:
     post:
       parameters:
@@ -262,6 +285,51 @@ paths:
       responses:
         '200': {description: Read-only journey state, route and last recorded location}
         '410': {$ref: '#/components/responses/Error'}
+  /share/{token}/companion:
+    parameters:
+      - {name: token, in: path, required: true, schema: {type: string}}
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [event_id], properties: {event_id: {type: string}}}
+      responses:
+        '200': {description: Idempotent viewer acknowledgement; cannot resolve SAFE or change deadline}
+        '409': {$ref: '#/components/responses/Error'}
+        '410': {$ref: '#/components/responses/Error'}
+  /internal/sms/{id}/claim:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      security: [{worker: []}]
+      responses:
+        '200': {description: One-time claim returning contact, SMS message and signed callback URL. Requires enabled cloud SMS and an eligible recipient}
+        '409': {$ref: '#/components/responses/Error'}
+  /internal/sms/{id}/result:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+    post:
+      security: [{worker: []}]
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, properties: {message_sid: {type: string}, outcome_unknown: {type: boolean}}}
+      responses:
+        '200': {description: Recorded provider request outcome; does not assert delivery or safety acknowledgement}
+  /v1/provider/twilio/sms-status:
+    post:
+      security: [{twilio: []}]
+      parameters:
+        - {name: attempt_id, in: query, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema: {type: object, required: [MessageSid, MessageStatus], properties: {MessageSid: {type: string}, MessageStatus: {type: string}}}
+      responses:
+        '200': {description: Signed, monotonic SMS status update. Delivery does not acknowledge the SOS}
+        '403': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     installation: {type: http, scheme: bearer}

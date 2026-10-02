@@ -27,7 +27,7 @@ function normalizeIncidents(records,now=Date.now()){
   if(!Number.isFinite(days)||days<0||days>3650)return [];
   const id=String(r.id??`${lat}:${lng}:${r.incident_date}:${r.category}`);
   if(seen.has(id))return [];seen.add(id);
-  return [{id,lat,lng,days_old:days,category:String(r.category||'other').toLowerCase().replace(/[^a-z_]/g,'_'),source:r.source||'Provided dataset'}];
+  return [{id,lat,lng,days_old:days,category:String(r.category||'other').toLowerCase().replace(/[^a-z_]/g,'_'),source:r.source||'Provided dataset',precision_meters:Number.isFinite(r.precision_meters)?Math.max(0,Math.min(100,r.precision_meters)):0}];
  });
 }
 function scoreRoute(records,points,corridorKm=.5,options={}){
@@ -38,8 +38,8 @@ function scoreRoute(records,points,corridorKm=.5,options={}){
  for(let i=0;i<points.length-1;i++){
   const start=points[i],end=points[i+1],distance=haversine(start[1],start[0],end[1],end[0])*1000;let weight=0;
   for(const inc of incidents){
-   const d=segmentDistanceKm([inc.lng,inc.lat],start,end);if(d>corridorKm)continue;
-   weight+=(SEVERITY[inc.category]??.35)*recencyWeight(inc.days_old)*distanceDecay(d);
+   const d=segmentDistanceKm([inc.lng,inc.lat],start,end),nearest=Math.max(0,d-inc.precision_meters/1000);if(nearest>corridorKm)continue;
+   weight+=(SEVERITY[inc.category]??.35)*recencyWeight(inc.days_old)*distanceDecay(nearest);
    const old=evidence.get(inc.id);
    if(!old||d<old.distance_km)evidence.set(inc.id,{id:inc.id,category:inc.category,days_old:Math.floor(inc.days_old),distance_km:Number(d.toFixed(3)),source:inc.source});
   }

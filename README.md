@@ -1,8 +1,19 @@
-# SheShield 2
+# SheShield · Street evidence and Walk with me
 
 A native Android journey companion focused on Kolkata: compare real walking routes, understand available incident evidence, monitor a journey, and request help from a trusted circle.
 
 **Start here:** open `android/` in Android Studio. The current debug APK is `artifacts/SheShield-debug.apk`. Custom routes use OpenRouteService in both practice and live modes. The explicit recorded Kolkata demo works without the API; map tiles still need internet unless already cached. Contact calls use your existing n8n Cloud account.
+
+## Practicality update
+
+- **Street evidence & gaps:** walking geometry is analysed in pieces up to 50 m. Each route shows nearby reports, coordinate uncertainty, source links, reporting coverage, the highest local exposure and the longest continuous evidence gap. Missing coverage cannot earn a lower-exposure recommendation.
+- **Reviewed data admission:** source registry, geographic scope, record/event IDs, review dates, public-space setting and precision are required. Centroids remain area context; duplicate cases, invalid records and stale coverage cannot silently create green streets.
+- **Walk with me:** set a personal check-in even when no crime evidence exists. The app distinguishes a local timer from a deadline confirmed by the server and reports whether automatic contact calls are configured.
+- **Find another way:** during a live journey, preview alternatives from fresh GPS, optionally avoiding an area 100 m or 250 m ahead. Accept a replacement while keeping the destination, contacts and pending check-in deadline. Earlier avoidances remain for this journey. If no distinct path exists, the current route stays active.
+- **Cloud calls and SMS:** the n8n Cloud worker supports sequential contact calls and separate SMS delivery with signed provider callbacks. The SOS screen shows both channels; delivered SMS does not mean a person acknowledged. Live services stay disabled until configured for consenting recipients.
+- **Companion acknowledgement:** a private browser link lets someone acknowledge the current watch without installing the app. They cannot cancel the traveller's check-in. Links can be revoked and stop sharing when the journey ends.
+
+**Live Kolkata crime coverage is still unverified and unavailable.** Read [the data research and admission rules](docs/INCIDENT_DATA.md) and [the product rationale and demonstration](docs/PRACTICALITY.md). Analysis every 50 m does not imply incident coordinates accurate to 50 m.
 
 ## What changed
 
@@ -17,7 +28,7 @@ A native Android journey companion focused on Kolkata: compare real walking rout
 
 ## Run the local API
 
-Use Node **24.21.0 or newer in the Node 24 line**; the API uses built-in SQLite. On this WSL workspace a portable runtime is already available at `/tmp/sheshield-tools/node/bin/node`.
+Use Node **24.21.0 or newer in the Node 24 line**; the API uses built-in SQLite. On this WSL workspace a portable runtime is available at `.tools/runtime/node/bin/node`; `.tools/` is ignored by Git.
 
 ```bash
 python3 scripts/configure_local.py
@@ -49,13 +60,21 @@ Open `android/` in Android Studio (`C:\Program Files\Android\Android Studio`). L
 - Location access is required to run the location foreground service. Rehearsal uses simulated positions. Notifications make background check-ins visible. Android force-stop stops local monitoring until you reopen the app; the server can still expire an already registered live deadline.
 - Device SMS is optional, needs an SMS-capable SIM and permission, and reports separate request/sent/delivered states. The emulator cannot verify actual carrier delivery.
 
+If both place search and route planning say **Connection unavailable**, check the API connection even if the phone has internet. `10.0.2.2` is an emulator address. A physical phone needs the current public HTTPS URL, and both the API and tunnel must stay running. Open `YOUR-API-URL/health` in the phone browser; it should return `status: ok`. After replacing a temporary tunnel URL, enter the enrollment code again before tapping **Save connection**. **Check readiness** checks configuration; the command below also verifies enrollment, actual place search and a short walking route without starting a journey or requesting alerts:
+
+```bash
+.tools/runtime/node/bin/node --env-file=api/.env scripts/verify_connection.mjs
+```
+
+The launcher scripts use the persistent Node installation in `.tools/runtime/node` and tunnel executable in `.tools/cloudflared` when system installations are absent.
+
 For the isolated WSL build already configured here:
 
 ```bash
 scripts/build_android.sh :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-The helper builds in `/tmp/sheshield-android-build` so it does not rewrite Studio's Windows SDK path, then copies the APK to `artifacts/`. With a regular Linux SDK/JDK, set `SHESHIELD_SDK` and `JAVA_HOME` to your installations. On Windows use Studio or `android\gradlew.bat`.
+The helper builds in ignored `.tools/android/build` so it does not rewrite Studio's Windows SDK path, then copies the APK to `artifacts/`. Portable SDK, JDK and Gradle cache also live under `.tools/android`. With a regular Linux SDK/JDK, set `SHESHIELD_SDK` and `JAVA_HOME` to your installations. On Windows use Studio or `android\gradlew.bat`.
 
 ## Connect n8n Cloud and Twilio
 
@@ -72,13 +91,15 @@ Restart the API after changing `.env`. Set the same URL in the workflow Configur
 
 Configure the Twilio credentials in n8n, the matching `TWILIO_AUTH_TOKEN` locally for signature validation, and the shared Header Auth credential. `LIVE_ALERTS_ENABLED=false` is the default. To test real calls, add consenting recipients to `TEST_RECIPIENT_ALLOWLIST`, then enable live alerts and restart the API. Twilio trial accounts may require verified recipients.
 
+Cloud SMS additionally requires the updated worker's SMS branch, its Twilio/Header Auth credential bindings, an SMS-capable sender and `LIVE_SMS_ENABLED=true`. Existing n8n Cloud credentials can be reused. `N8N_API_KEY` is optional management access for inspecting/configuring the cloud workspace; it is not the phone's enrollment code or the delivery worker token.
+
 A ringing or completed call does not imply acknowledgement. The recipient presses **1** to acknowledge. Duplicate jobs cannot claim the same attempt. Uncertain provider requests are not blindly repeated. Cancellation stops future escalation; it cannot recall a call or message already sent.
 
 ## Incident data and exposure
 
 Live data is **unknown** until a real, dated geospatial incident dataset with explicit source and coverage is supplied. Fictional fixtures are rejected in live mode. A low exposure index is a comparison result, not a guarantee or a probability of crime.
 
-Read **[docs/INCIDENT_DATA.md](docs/INCIDENT_DATA.md)** for the dataset format and optional Pinecone exporter. Pinecone embedding similarity is not a geographic risk score. The deterministic model measures each incident's distance from every route segment, applies category/recency weighting, and averages exposure by segment distance. The app's explanation displays the actual supporting evidence and coverage.
+Read **[docs/INCIDENT_DATA.md](docs/INCIDENT_DATA.md)** for the dataset format and optional Pinecone exporter. Pinecone embedding similarity is not a geographic risk score. The deterministic model measures each reviewed incident's distance and coordinate uncertainty against short route pieces, applies category/recency weighting, and displays both local peaks and distance-weighted exposure. The app's explanation displays the actual supporting evidence and coverage.
 
 ## Demonstrate the product
 
@@ -100,4 +121,4 @@ npm test
 
 Android checks: `:app:assembleDebug :app:testDebugUnitTest :app:lintDebug`. Device migration test: `:app:assembleDebugAndroidTest`, then run `DatabaseRecoveryTest` using Android Studio or ADB instrumentation. Tests use a separate temporary database and preserve the app's real contacts/history.
 
-See **[docs/VALIDATION.md](docs/VALIDATION.md)** for observed results and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).
+See **[docs/VALIDATION.md](docs/VALIDATION.md)** for the 38-test API suite, browser checks, emulator observations, screenshots and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).

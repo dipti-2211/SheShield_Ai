@@ -1,0 +1,44 @@
+{
+  "test": "Authorized real call and SMS through n8n Cloud",
+  "created_at_ms": 1790944777315,
+  "call_attempts": 1,
+  "sms_attempts": 1,
+  "call_status": "ACKNOWLEDGED",
+  "sms_status": "DELIVERED",
+  "acknowledgement_received": true,
+  "safety_confirmed": false,
+  "timeline": [
+    {
+      "status": "REQUESTED",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "status": "QUEUED",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "status": "SMS_QUEUED",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "status": "SMS_SENT",
+      "elapsed_seconds": 4.0
+    },
+    {
+      "status": "RINGING",
+      "elapsed_seconds": 5.1
+    },
+    {
+      "status": "SMS_DELIVERED",
+      "elapsed_seconds": 5.9
+    },
+    {
+      "status": "IN_PROGRESS",
+      "elapsed_seconds": 9.2
+    },
+    {
+      "status": "ACKNOWLEDGED",
+      "elapsed_seconds": 27.2
+    }
+  ]
+}

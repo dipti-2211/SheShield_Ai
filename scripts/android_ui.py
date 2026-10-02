@@ -3,7 +3,8 @@
 import os,re,subprocess,sys,xml.etree.ElementTree as ET
 from pathlib import Path
 adb=os.environ.get('SHESHIELD_ADB','/mnt/c/Users/rohit/AppData/Local/Android/Sdk/platform-tools/adb.exe')
-def run(*args): return subprocess.run([adb,*args],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35).stdout
+device=os.environ.get('SHESHIELD_DEVICE_SERIAL','emulator-5554')
+def run(*args): return subprocess.run([adb,'-s',device,*args],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35).stdout
 def nodes():
  run('shell','uiautomator','dump','/sdcard/sheshield-ui.xml')
  return list(ET.fromstring(run('shell','cat','/sdcard/sheshield-ui.xml')).iter('node'))
@@ -41,7 +42,7 @@ elif action=='connection':
   if child.get('name') in ['backend_url','enrollment_code','session_token']:prefs.remove(child)
  for key,value in [('backend_url',url),('enrollment_code',code)]:ET.SubElement(prefs,'string',{'name':key}).text=value
  run('shell','am','force-stop','com.sheshield.app')
- subprocess.run([adb,'shell',"run-as com.sheshield.app sh -c 'cat > shared_prefs/sheshield_prefs.xml'"],input=ET.tostring(prefs,encoding='utf-8',xml_declaration=True),stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,timeout=35)
+ subprocess.run([adb,'-s',device,'shell',"run-as com.sheshield.app sh -c 'cat > shared_prefs/sheshield_prefs.xml'"],input=ET.tostring(prefs,encoding='utf-8',xml_declaration=True),stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,timeout=35)
  print('Routing API connection configured. Credentials were not printed; contacts and history were preserved.')
 elif action=='type':
  fields=[n for n in nodes() if n.get('class','').endswith('EditText')]

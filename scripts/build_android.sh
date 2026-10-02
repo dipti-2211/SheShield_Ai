@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-build_root="${SHESHIELD_BUILD_ROOT:-/tmp/sheshield-android-build}"
-: "${SHESHIELD_SDK:=${ANDROID_HOME:-/tmp/sheshield-tools/sdk}}"
-export JAVA_HOME="${JAVA_HOME:-/tmp/sheshield-tools/jdk}"
-export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/sheshield-gradle}"
+build_root="${SHESHIELD_BUILD_ROOT:-$project_root/.tools/android/build}"
+: "${SHESHIELD_SDK:=${ANDROID_HOME:-$project_root/.tools/android/sdk}}"
+export JAVA_HOME="${JAVA_HOME:-$project_root/.tools/android/jdk}"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$project_root/.tools/android/gradle}"
 python3 - "$project_root" "$build_root" "$SHESHIELD_SDK" <<'PY'
 import shutil,sys
 from pathlib import Path
