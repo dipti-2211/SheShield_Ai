@@ -6,14 +6,14 @@ A native Android journey companion focused on Kolkata: compare real walking rout
 
 ## Practicality update
 
-- **Street evidence & gaps:** walking geometry is analysed in pieces up to 50 m. Each route shows nearby reports, coordinate uncertainty, source links, reporting coverage, the highest local exposure and the longest continuous evidence gap. Missing coverage cannot earn a lower-exposure recommendation.
-- **Reviewed data admission:** source registry, geographic scope, record/event IDs, review dates, public-space setting and precision are required. Centroids remain area context; duplicate cases, invalid records and stale coverage cannot silently create green streets.
+- **Street evidence & gaps:** Salt Lake routes use sections up to 10 m and distinguish reviewed street matches, wider-area reports, historical events, source links and reporting gaps. Names and reviewed geometry must agree; nearby roads do not inherit reports. Live safety remains unknown.
+- **Reviewed data admission:** dated source and reuse registry, event/publisher IDs, date intervals, public-space setting, uncertainty and two real location reviews are required for street admission. Immutable hashed snapshots and an independent-reference evaluator expose actual counts and unmeasured accuracy.
 - **Walk with me:** set a personal check-in even when no crime evidence exists. The app distinguishes a local timer from a deadline confirmed by the server and reports whether automatic contact calls are configured.
 - **Find another way:** during a live journey, preview alternatives from fresh GPS, optionally avoiding an area 100 m or 250 m ahead. Accept a replacement while keeping the destination, contacts and pending check-in deadline. Earlier avoidances remain for this journey. If no distinct path exists, the current route stays active.
 - **Cloud calls and SMS:** the n8n Cloud worker supports sequential contact calls and separate SMS delivery with signed provider callbacks. The SOS screen shows both channels; delivered SMS does not mean a person acknowledged. Live services stay disabled until configured for consenting recipients.
 - **Companion acknowledgement:** a private browser link lets someone acknowledge the current watch without installing the app. They cannot cancel the traveller's check-in. Links can be revoked and stop sharing when the journey ends.
 
-**Live Kolkata crime coverage is still unverified and unavailable.** Read [the data research and admission rules](docs/INCIDENT_DATA.md) and [the product rationale and demonstration](docs/PRACTICALITY.md). Analysis every 50 m does not imply incident coordinates accurate to 50 m.
+**The Salt Lake pilot contains five real published references and zero independently validated street incidents or current observations.** They appear as wider-area context, with two historical reports. Complete street reporting remains unavailable. Read [the data rules](docs/INCIDENT_DATA.md), [source decisions](evidence/saltlake/SOURCE_RESEARCH.md), [prepared partner requests](docs/PARTNER_REQUESTS.md) and [the product rationale](docs/PRACTICALITY.md). Calculation resolution does not establish location accuracy. No personal field survey is required from the user.
 
 ## What changed
 
@@ -22,7 +22,7 @@ A native Android journey companion focused on Kolkata: compare real walking rout
 - Search and select both endpoints, use GPS for the start, or long-press the map to place pins. Changing either endpoint invalidates the previous plan. Requested pins remain visible when the provider snaps to nearby walking paths; access distances over 30 m are explained, and snapping over 200 m is rejected.
 - Landmark search is bounded to Greater Kolkata. ORS results must match the requested place terms; missing landmarks use bounded Nominatim search rather than unrelated museums or other cities. [Pelias search boundaries](https://github.com/pelias/documentation/blob/master/search.md), [Nominatim bounded search](https://nominatim.org/release-docs/latest/api/Search/).
 - Immutable selected endpoints and geometry stored locally. The map draws persistent layers, distinguishes alternatives/elevated segments, follows only when requested, and allows recentering.
-- A location foreground service owns check-in deadlines. Two accurate fixes on an elevated segment trigger a check-in; a five-minute live deadline or twenty-second rehearsal deadline can escalate.
+- A location foreground service supports personal watch deadlines with server registration. Elevated-segment triggers are confined to the explicitly fictional recorded rehearsal; live unknown streets never trigger an inferred crime-risk alert.
 - Local SQLite/Room persistence, stable command IDs, an offline outbox, background sync, standalone SOS, ordered contacts, signed provider callbacks and explicit delivery states.
 - A recorded Kolkata walking rehearsal using production scoring and clearly fictional incident evidence. It never sends real calls or messages.
 
@@ -97,9 +97,9 @@ A ringing or completed call does not imply acknowledgement. The recipient presse
 
 ## Incident data and exposure
 
-Live data is **unknown** until a real, dated geospatial incident dataset with explicit source and coverage is supplied. Fictional fixtures are rejected in live mode. A low exposure index is a comparison result, not a guarantee or a probability of crime.
+Salt Lake uses the reviewed version 4 snapshot installed through `INCIDENT_DATA_PATH`. Five real news references retain their source/date/location limits and appear as area context. No street records, current conditions or complete reporting feeds have been acquired, so live safety remains **UNKNOWN** and alternatives sort by walking time.
 
-Read **[docs/INCIDENT_DATA.md](docs/INCIDENT_DATA.md)** for the dataset format and optional Pinecone exporter. Pinecone embedding similarity is not a geographic risk score. The deterministic model measures each reviewed incident's distance and coordinate uncertainty against short route pieces, applies category/recency weighting, and displays both local peaks and distance-weighted exposure. The app's explanation displays the actual supporting evidence and coverage.
+Read **[docs/INCIDENT_DATA.md](docs/INCIDENT_DATA.md)** for source research, admission, review, accuracy evaluation and publication. A 10 m calculation grid and Pinecone similarity cannot establish accurate incident geography. Dated conditions need actual provider observations and expire automatically. Accuracy is unmeasured until an independent reference sample exists.
 
 ## Demonstrate the product
 
@@ -121,4 +121,4 @@ npm test
 
 Android checks: `:app:assembleDebug :app:testDebugUnitTest :app:lintDebug`. Device migration test: `:app:assembleDebugAndroidTest`, then run `DatabaseRecoveryTest` using Android Studio or ADB instrumentation. Tests use a separate temporary database and preserve the app's real contacts/history.
 
-See **[docs/VALIDATION.md](docs/VALIDATION.md)** for the 38-test API suite, browser checks, emulator observations, screenshots and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).
+See **[docs/VALIDATION.md](docs/VALIDATION.md)** for the 80-test API suite, browser checks, emulator observations, screenshots and external setup still requiring verification. The source plan is [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); current architecture is [SHE_SHIELD_MASTER.md](SHE_SHIELD_MASTER.md).

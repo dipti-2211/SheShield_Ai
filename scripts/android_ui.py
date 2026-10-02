@@ -34,7 +34,10 @@ elif action in ['safe','check']:
  else:raise SystemExit('No check-in appeared within the observation window')
 elif action=='connection':
  env=dict(x.split('=',1) for x in Path('api/.env').read_text().splitlines() if x and not x.startswith('#') and '=' in x)
- code=env.get('ENROLLMENT_CODE','');url=env.get('PUBLIC_BASE_URL') or 'http://10.0.2.2:8787'
+ code=env.get('ENROLLMENT_CODE','');url=(sys.argv[2] if len(sys.argv)>2 else env.get('PUBLIC_BASE_URL')) or 'http://10.0.2.2:8787'
+ from urllib.parse import urlsplit
+ parsed=urlsplit(url)
+ if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:raise SystemExit('Use an HTTP(S) API URL without embedded credentials')
  if not code:raise SystemExit('Enrollment code is missing locally')
  if b'TripTrackingService' in run('shell','dumpsys','activity','services','com.sheshield.app'):raise SystemExit('End the current journey before configuring its connection')
  raw=run('exec-out','run-as','com.sheshield.app','cat','shared_prefs/sheshield_prefs.xml');prefs=ET.fromstring(raw)

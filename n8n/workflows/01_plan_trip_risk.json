@@ -1,5 +1,5 @@
 {
-  "name": "SheShield - Trip Planning & Risk",
+  "name": "DEPRECATED - use SheShield API for route evidence",
   "nodes": [
     {
       "parameters": {
@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// Validate required fields\nconst body = $input.first().json.body ?? $input.first().json;\n\nconst required = ['origin_lat','origin_lng','dest_lat','dest_lng','dest_label'];\nfor (const field of required) {\n  if (body[field] === undefined || body[field] === null || body[field] === '') {\n    throw new Error('Missing required field: ' + field);\n  }\n}\n\nreturn [{\n  json: {\n    origin_lat:  parseFloat(body.origin_lat),\n    origin_lng:  parseFloat(body.origin_lng),\n    dest_lat:    parseFloat(body.dest_lat),\n    dest_lng:    parseFloat(body.dest_lng),\n    dest_label:  String(body.dest_label),\n    trusted_contacts: body.trusted_contacts ?? [],\n    demo_mode: body.demo_mode === true,\n    trip_id: 'TRIP-' + Date.now() + '-' + Math.random().toString(36).slice(2,7).toUpperCase()\n  }\n}];\n"
+        "jsCode": "throw new Error('This legacy planning workflow is retired. Use the authenticated SheShield API POST /v1/plans. It owns source review, street attribution and unknown coverage. Import only workflow 04 for Cloud delivery.');"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

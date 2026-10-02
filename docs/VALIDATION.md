@@ -6,8 +6,8 @@ Recorded 2 October 2026 for the street-evidence and personal-watch update, follo
 
 | Check | Observed result |
 | --- | --- |
-| API production/risk/evidence/rerouting/cloud-SMS/sharing/import/messages regression suite | 61 tests passed, 0 failed |
-| Android journey-math, saved-alert compatibility and sharing request unit tests | 10 tests passed, 0 failed |
+| API production/risk/evidence/rerouting/cloud-SMS/sharing/import/messages regression suite | 80 tests passed, 0 failed |
+| Android journey-math, saved-alert compatibility and sharing request unit tests | 12 tests passed, 0 failed |
 | Android debug APK build | Passed; `artifacts/SheShield-debug.apk` |
 | Android lint | Passed with 0 errors; warnings about hardcoded text, obsolete resources and API deprecations remain |
 | Room v1 → v2 recovery instrumentation | Passed on API 37 emulator, 1 test; legacy contact/trip/deadline preservation and reopen checked using a separate database |
@@ -18,6 +18,29 @@ Recorded 2 October 2026 for the street-evidence and personal-watch update, follo
 API tests cover immutable selected geometry, command replay, unique timeout escalation, SAFE/end, owner authorization, standalone SOS, honest unavailable delivery, signed/monotonic Twilio callbacks, late acknowledgement, transaction rollback, SQLite restart recovery, invalid GPS, expiring share links, timely offline SAFE recovery, changed practice endpoints, explicit recorded-demo selection, bounded/matching Kolkata landmark search, route snapping/metrics/deduplication, and the actual geographic scoring engine.
 
 Reproduce API tests with `cd api && npm test`. Build Android with `scripts/build_android.sh :app:assembleDebug :app:testDebugUnitTest :app:lintDebug`. This workspace uses persistent portable tools under ignored `.tools/runtime` and `.tools/android`; Windows Studio can build the `android/` project with its installed SDK.
+
+## Salt Lake source and attribution update
+
+Research on 2 October 2026 produced five actual published Salt Lake references, with priority Sectors II and V. The immutable version `2026-10-02.1` contains **0 admitted street events, 5 context events (2 historical), 0 current observations and 0 complete reporting areas**. Original URLs, event-date intervals, setting and location limits remain attributable. Source checks are automated; no human/provider reviews, field observations or accuracy measurements were invented.
+
+The new API tests check 10 m route analysis without extending a tiny event along the whole road, named-street and alias agreement, nearby parallel roads, perpendicular crossings, unsupported sides, section interiors crossing a curved road, reviewer roles/duplicate identities/rejections, conflicting locations, publisher-ID reuse, date precision and aging, invalid datasets, licensed direct observations and expiry, observation conflicts, coverage counts reconciled to supplied records, private/campus/transport exclusion, and private-field suppression. Immutable snapshot/hash tests and independent-reference evaluation verify that zero reference cases produce `UNMEASURED` and null rates. A legacy saved live HIGH score cannot trigger an inferred segment watch; personal watches continue to work.
+
+Android tests additionally verify that saved older route JSON remains readable and that date intervals, area context, links and route decision fields survive saving/reopening. Build and lint passed, with 0 lint errors and 125 warnings. The source dialog is available on route comparison and the active journey. Live map colors and summaries remain unknown; scores are confined to the fictional recorded rehearsal. The older n8n planner is disabled and refuses execution; Cloud delivery workflow 04 remains the delivery path.
+
+The final APK was installed on the API 37 emulator. Selecting Technopolis and Wipro produced the 1,462 m route and an always-visible source button. Opening it showed the walking-time decision, zero street matches, five wider-area references, the dated first report, its unresolved location explanation and its publisher link; the Done control remained visible. Observed screenshots: [route comparison](../artifacts/saltlake-route.png) and [source explanation](../artifacts/saltlake-sources.png). This check started no journey and requested no alerts.
+
+The production API loaded the audited hashed snapshot while preserving its database. No journeys or deliveries were active during restart. The former quick tunnel returned HTTP 530; a replacement public URL was configured and enrollment, actual place search and routing passed. No real calls or SMS were requested during these checks.
+
+`scripts/verify_saltlake.mjs` checked the same public connection used by Android:
+
+| Selected endpoints | Actual provider options | Shortest walk | Evidence result |
+| --- | --- | --- | --- |
+| Technopolis → Wipro, Sector V | 3 | 1,462 m | 5 wider-area references, 0 street matches, UNKNOWN safety |
+| BG Block → BJ Block, Sector II | 2 | 1,089 m | 5 wider-area references, 0 street matches, UNKNOWN safety |
+
+The exact geocoder pins, route lengths, snapping and snapshot hash are in [the live check](../artifacts/saltlake-live-check.json). An initial generic College More query selected a different location and yielded a 3.8 km walk; the final check uses specific verified landmark/block matches. These provider checks are not a physical GPS walk or proof of incident-location accuracy. A repeat after the final restart verified Sector V again but a Sector II place search returned `503 PROVIDER_UNAVAILABLE`; an earlier cold lookup also timed out. External geocoding availability is intermittent and remains a practical limitation. Failed searches are reported explicitly and do not create invented destinations. The successful proof artifact retains its original check timestamp. A focused retry of BG Block recovered the two expected Sector II matches. The emulator later failed to resolve the temporary tunnel address despite the correct saved URL; its final visual check uses `http://10.0.2.2:8787` against the same running API. This emulator-only address must not be used on the physical phone.
+
+The [manifest](../artifacts/saltlake-evidence-manifest.json), [source review packet](../artifacts/saltlake-review/review.html), [unmeasured accuracy report](../artifacts/saltlake-accuracy.json) and [prepared partner requests](PARTNER_REQUESTS.md) record the current state. No institution has been contacted. The user is not expected to survey streets manually; independent provider/location evidence is still required to fulfill the street-accuracy objective. No physical phone was connected during this update, so its APK installation remains pending.
 
 ## Companion sharing request fix
 
@@ -119,7 +142,7 @@ Screenshots are under `artifacts/`. Simulated replay and delivery results valida
 ## External checks still required
 
 - Cloud calling, SMS delivery and press-1 acknowledgement passed for the approved verified recipient. Other recipients need account/trial eligibility and their own delivery checks. Follow [the import checklist](../n8n/IMPORT_CHECKLIST.md).
-- No real Pinecone incident dataset has been inspected. Live exposure remains UNKNOWN until a valid dated dataset with source and geographic coverage is supplied; see [incident-data instructions](INCIDENT_DATA.md).
+- Five Salt Lake public references are installed as area context. No precise incident partnership or independent location reference sample has been acquired. Live safety remains UNKNOWN; see [incident-data instructions](INCIDENT_DATA.md).
 - No physical-phone GPS walk, Android OEM background-policy behavior, or released/signed APK has been tested. The supplied artifact is a debug APK.
 - Basemap tiles need internet or an existing cache. Recorded geometry and local rehearsal continue without the API; editable custom route calculation needs the provider/API. There is no promised offline street map.
 - The local API and temporary public tunnel must remain running. A quick-tunnel URL changes on restart, requiring updates to the API public URL and Android connection. The prepared worker reads the API URL from each authenticated job; a manually fixed Cloud Configuration URL also needs updating. Production uptime/deployment is outside these observed checks.

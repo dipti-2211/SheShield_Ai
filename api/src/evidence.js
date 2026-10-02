@@ -1,4 +1,5 @@
 import {haversine, validPoint, segmentDistanceKm, scoreRoute} from './risk.js';
+import {auditStreetDataset,assessStreetRoute} from './street_evidence.js';
 
 const DAY = 86400000;
 const categories = new Set(['violent_crime','sexual_assault','robbery','kidnapping','assault','harassment','theft','vandalism','traffic_incident','other']);
@@ -14,6 +15,7 @@ const inside = (p,b) => p[0]>=b[0] && p[0]<=b[2] && p[1]>=b[1] && p[1]<=b[3];
 
 // This validates provenance supplied by a data steward. It cannot authenticate a report's truth.
 export function auditDataset(input = {}, now = Date.now()) {
+  if(input?.schema_version===4)return auditStreetDataset(input,now);
   const result = {incidents:[], context:[], areas:[], sources:[], audit:{accepted:0, context_only:0, rejected:0, duplicates:0, reasons:{}}};
   const reject = reason => { result.audit.rejected++; result.audit.reasons[reason]=(result.audit.reasons[reason]||0)+1; };
   if (!input || input.schema_version!==3 || input.is_real_data!==true || !Array.isArray(input.sources) || !Array.isArray(input.incidents)) {
@@ -61,12 +63,12 @@ export function auditDataset(input = {}, now = Date.now()) {
   return result;
 }
 
-export function subdivideRoute(route) {
+export function subdivideRoute(route,stepMeters=50) {
   const points=route.geometry;
   if (!Array.isArray(points) || points.length<2 || !points.every(validPoint)) throw Error('Invalid route geometry');
   const geometry=[points[0]], indices=[0];
   for (let i=1;i<points.length;i++) {
-    const a=points[i-1],b=points[i],parts=Math.max(1,Math.ceil(haversine(a[1],a[0],b[1],b[0])*1000/50));
+    const a=points[i-1],b=points[i],parts=Math.max(1,Math.ceil(haversine(a[1],a[0],b[1],b[0])*1000/stepMeters));
     if (parts+geometry.length>20000) throw Error('Route is too long for walking analysis');
     for(let j=1;j<=parts;j++) geometry.push(j===parts?b:[a[0]+(b[0]-a[0])*j/parts,a[1]+(b[1]-a[1])*j/parts]);
     indices.push(geometry.length-1);
@@ -75,7 +77,8 @@ export function subdivideRoute(route) {
 }
 
 export function assessRoute(route, dataset, now=Date.now(), demoRecords=null) {
-  const r=subdivideRoute(route), demo=demoRecords!==null;
+  const demo=demoRecords!==null,r=subdivideRoute(route,!demo&&dataset.schema_version===4?10:50);
+  if(!demo&&dataset.schema_version===4)return assessStreetRoute(r,dataset,now);
   const records=demo?demoRecords:dataset.incidents.filter(r=>now-Date.parse(r.incident_date)<=365*DAY);
   const corridor=.15;
   const risk=scoreRoute(records,r.geometry,corridor,{now});
@@ -93,7 +96,9 @@ export function assessRoute(route, dataset, now=Date.now(), demoRecords=null) {
     s.evidence_count=records.filter(x=>segmentDistanceKm([x.lng,x.lat],a,b)<=corridor+(x.precision_meters||0)/1000).length;
     s.from_meters=Math.round(offset);offset+=s.distance_meters;s.to_meters=Math.round(offset);
     total+=s.distance_meters;
-    if (known) { covered+=s.distance_meters;gap=0; } else { gap+=s.distance_meters;longest=Math.max(longest,gap);s.risk_level='UNKNOWN'; }
+    if (known) { covered+=s.distance_meters;gap=0; } else { gap+=s.distance_meters;longest=Math.max(longest,gap); }
+    if(!demo||!known)s.risk_level='UNKNOWN';
+    if(!demo)s.score=0;
     const kind=s.evidence_count>0?'REPORTS':known?'NO_REPORTS':'UNKNOWN';
     const previous=stretches.at(-1);
     if (previous?.kind===kind && previous.coverage===s.coverage) {previous.to_meters=s.to_meters;previous.report_count=Math.max(previous.report_count,s.evidence_count);}
@@ -113,18 +118,27 @@ export function assessRoute(route, dataset, now=Date.now(), demoRecords=null) {
     precise_report_count:evidence.length,stretches,sources:demo?[]:dataset.sources,
     coverage_windows:demo?[]:dataset.areas.filter(a=>r.geometry.some(p=>inside(p,a.bounds))).map(a=>({source:a.source,from:a.window_start,to:a.window_end,updated_at:a.updated_at,method_url:a.method_url})),
     limitations:'Missing reports do not establish safety. Reporting gaps, location uncertainty and unreported incidents remain. Nearby reports can be on another street or across a barrier.'};
-  return {...r,risk_level:coverage==='AVAILABLE'?risk.level:'UNKNOWN',risk_score:risk.score,incident_count:evidence.length,
+  return {...r,risk_level:demo&&coverage==='AVAILABLE'?risk.level:'UNKNOWN',risk_score:demo?risk.score:0,incident_count:evidence.length,
     segments:risk.segments,evidence,coverage,evaluated_at:new Date(now).toISOString(),algorithm_version:'evidence-3.0',is_demo_data:demo,
     passport,risk_summary:demo?`${evidence.length} fictional reports. Demo evidence only.`:
       `${evidence.length} reviewed public-space reports overlapping the 150 m corridor. ${passport.coverage_percent}% has documented recent reporting coverage. ${context.length} imprecise area reports excluded from street scoring.`,
-    label:'',route_revision:1};
+    label:'',route_revision:1,decision:demo?null:{basis:'WALKING_TIME',summary:'Walking-time comparison. Nearby reports have not been matched to the same street.',reasons:[]}};
 }
 
 export function labelRoutes(routes) {
   const fastest=Math.min(...routes.map(r=>r.duration_seconds));
   const windows=r=>JSON.stringify((r.passport?.coverage_windows||[]).map(w=>`${w.source}:${w.from}:${w.to}`).sort());
-  const comparable=routes.every(r=>r.coverage==='AVAILABLE'&&windows(r)===windows(routes[0]));
+  const comparable=routes.every(r=>r.is_demo_data===true&&r.coverage==='AVAILABLE'&&windows(r)===windows(routes[0]));
   routes.sort((a,b)=>comparable?(a.passport.peak_exposure-b.passport.peak_exposure || a.risk_score-b.risk_score || a.duration_seconds-b.duration_seconds):a.duration_seconds-b.duration_seconds);
-  routes.forEach((r,i)=>{r.extra_minutes=Math.round((r.duration_seconds-fastest)/60);r.label=comparable&&i===0?'Lower reported exposure':r.duration_seconds===fastest?'Fastest walking route':'Alternative walking route';});
+  routes.forEach((r,i)=>{
+    r.extra_minutes=Math.round((r.duration_seconds-fastest)/60);r.label=comparable&&i===0?'Lower reported exposure':r.duration_seconds===fastest?'Fastest walking route':'Alternative walking route';
+    if(!r.is_demo_data) {
+      r.decision=r.decision||{basis:'WALKING_TIME',reasons:[]};
+      r.decision.summary=r.duration_seconds===fastest?'Shortest walking time among the returned options. Safety cannot be ranked from the available evidence.':`${Math.ceil((r.duration_seconds-fastest)/60)} extra minutes. Safety cannot be ranked from the available evidence.`;
+      r.decision.reasons=[{kind:'TIME',text:`${Math.ceil(r.duration_seconds/60)} min walking · ${r.distance_meters} m`},
+        {kind:'REPORTS',text:r.algorithm_version==='street-evidence-4.0'?`${r.incident_count} reports matched to reviewed street sections. Wider-area reports do not identify this lane.`:`${r.incident_count} nearby reports. Geographic proximity does not establish the same street.`},
+        {kind:'GAPS',text:`${r.passport?.coverage_percent||0}% documented reporting coverage. Missing reports do not establish safety.`}];
+    }
+  });
   return routes;
 }

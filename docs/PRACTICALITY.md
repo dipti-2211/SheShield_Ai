@@ -51,4 +51,10 @@ The defensible demonstration is the **complete behaviour**: expose a short evide
 
 ## What remains before real-world reliance
 
-A reviewed local incident partnership; barrier-aware street attribution; field evaluation with intended users; actual consenting-recipient delivery tests; stable monitored HTTPS hosting; provider/account configuration; and calibrated escalation policies. This build is a working prototype with explicit limits, not validated emergency infrastructure.
+A licensed local incident/observation partnership; independent validation of reviewed street attribution and barrier handling; evaluation with intended users; delivery checks for additional consenting recipients; stable monitored HTTPS hosting; and validated escalation policies. The Salt Lake source research and review tools are implemented, but complete incident reporting and real street accuracy are not established. Existing provider observations can be requested; the user is not expected to survey streets personally. This build is a working prototype with explicit limits, not validated emergency infrastructure.
+
+## Show the Salt Lake evidence honestly
+
+Calculate an actual short Salt Lake route and open **Why this route? · sources & gaps**. The first snapshot shows five attributable wider-area references, each with event-date precision, setting and a reason it cannot identify that lane. Two remain historical. Show the unknown stretch and use a personal watch or reroute based on the traveller's concern. Do not present a zero report count as a safe street.
+
+The [local review packet](../artifacts/saltlake-review/review.html), [accuracy report](../artifacts/saltlake-accuracy.json) and [partner drafts](PARTNER_REQUESTS.md) make the next data dependency reviewable. They do not substitute for a partnership or independent accuracy measurement.

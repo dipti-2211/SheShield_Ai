@@ -22,7 +22,8 @@ export function buildApp(options={}) {
  const app=Fastify({logger:false,bodyLimit:256*1024,trustProxy:false});
  const scenario=options.scenario||JSON.parse(readFileSync(config.DEMO_PATH||new URL('../../demo/kolkata_scenario.json',import.meta.url)));
  let data=auditDataset({},now()),dataError=null;
- if(config.INCIDENT_DATA_PATH){try{data=auditDataset(JSON.parse(readFileSync(config.INCIDENT_DATA_PATH)),now());dataError=data.audit.error||null;}catch(e){dataError='Incident dataset could not be read or validated.';}}
+ if(options.evidenceDataset){data=auditDataset(options.evidenceDataset,now());dataError=data.audit.error||null;}
+ if(config.INCIDENT_DATA_PATH){try{const bytes=readFileSync(config.INCIDENT_DATA_PATH);data=auditDataset(JSON.parse(bytes),now());dataError=data.audit.error||null;if(data.metadata)data.metadata.sha256=createHash('sha256').update(bytes).digest('hex');}catch(e){dataError='Incident dataset could not be read or validated.';}}
  const cache=new Map(),rate=new Map();let lastSearch=0;
  app.addContentTypeParser('application/x-www-form-urlencoded',{parseAs:'string'},(_,body,done)=>done(null,Object.fromEntries(new URLSearchParams(body))));
  app.setErrorHandler((error,request,reply)=>reply.code(error.status||error.statusCode||500).send({code:error.code||'INTERNAL_ERROR',message:error.status||error.statusCode?error.message:'Something went wrong. Try again.',retryable:error.retryable||false,request_id:request.id}));
@@ -102,8 +103,9 @@ export function buildApp(options={}) {
  function presentSos(s){return {...s,attempts:s.attempt_ids.map(k=>store.get('attempt',k)),sms_attempts:(s.sms_attempt_ids||[]).map(k=>store.get('sms_attempt',k))};}
 
  app.get('/health',async()=>({status:'ok',version:'2.0.0'}));
- app.get('/ready',async()=>({status:'ok',routing:Boolean(config.ORS_API_KEY),risk_data:data.incidents.length>0,data_error:dataError,n8n:Boolean(config.N8N_WEBHOOK_URL&&config.WORKER_TOKEN),callbacks:Boolean(config.PUBLIC_BASE_URL&&config.TWILIO_AUTH_TOKEN),live_alerts:config.LIVE_ALERTS_ENABLED==='true',cloud_sms:config.LIVE_SMS_ENABLED==='true'&&config.LIVE_ALERTS_ENABLED==='true',rehearsal:true}));
- app.get('/v1/evidence/status',{preHandler:auth},async()=>({audit:data.audit,sources:data.sources,coverage_areas:data.areas.length,policy:'Reviewed public-space locations within 100 m precision; 50 m route analysis; no inference from city totals.'}));
+ app.get('/ready',async()=>({status:'ok',routing:Boolean(config.ORS_API_KEY),risk_data:data.incidents.length>0,evidence_context:data.context.length,street_reports:data.incidents.length,data_error:dataError,n8n:Boolean(config.N8N_WEBHOOK_URL&&config.WORKER_TOKEN),callbacks:Boolean(config.PUBLIC_BASE_URL&&config.TWILIO_AUTH_TOKEN),live_alerts:config.LIVE_ALERTS_ENABLED==='true',cloud_sms:config.LIVE_SMS_ENABLED==='true'&&config.LIVE_ALERTS_ENABLED==='true',rehearsal:true}));
+ app.get('/v1/evidence/status',{preHandler:auth},async()=>({audit:data.audit,sources:data.sources,coverage_areas:data.areas.filter(a=>now()-Date.parse(a.updated_at)<=30*86400000&&now()-Date.parse(a.window_end)<=30*86400000).length,dataset:data.metadata||null,scopes:data.scopes||[],observations:data.observations?.filter(o=>Date.parse(o.expires_at)>now()).length||0,
+   policy:'Live safety is unknown. Street attribution requires two location reviews, named-street agreement and reviewed geometry. Area search bounds never establish incident location or coverage.'}));
  app.post('/v1/sessions',async(req)=>{
   if(config.ENROLLMENT_CODE&&req.body?.enrollment_code!==config.ENROLLMENT_CODE)throw new ApiError('ENROLLMENT_REQUIRED','Enter the API enrollment code.',403);
   const token=randomBytes(32).toString('hex'),owner=id();store.put('session',{id:digest(token),owner,expires_at_ms:now()+30*86400000});return {session_token:token,installation_id:owner};
@@ -142,7 +144,7 @@ export function buildApp(options={}) {
   const personal=b.kind==='PERSONAL';
   if(b.kind!=null&&!['PERSONAL','SEGMENT'].includes(b.kind))throw new ApiError('INVALID_KIND','Choose a personal or route check-in.');
   const segment=personal?null:t.route.segments.find(s=>s.segment_id===b.segment_id);
-  if(!personal&&(!segment||!['MEDIUM','HIGH'].includes(segment.risk_level)))throw new ApiError('INVALID_SEGMENT','This segment does not require a check-in.');
+  if(!personal&&(t.mode!=='REHEARSAL'||t.route.is_demo_data!==true||!segment||!['MEDIUM','HIGH'].includes(segment.risk_level)))throw new ApiError('INVALID_SEGMENT','This segment does not require a check-in. Use a personal safety watch for live journeys.');
   if(b.location){const fix=location(b.location);if(!Number.isFinite(fix.timestamp_ms)||Math.abs(now()-fix.timestamp_ms)>600000||!(fix.accuracy_meters>=0&&fix.accuracy_meters<=50))throw new ApiError('INVALID_FIX','Check-ins require a recent, accurate location.');t.last_location=fix;}
   if(!personal&&(!t.last_location||segmentDistanceKm(point(t.last_location),t.route.geometry[segment.start_index],t.route.geometry[segment.end_index])>.1))throw new ApiError('LOCATION_MISMATCH','The current location is outside this segment.');
   const seconds=personal?b.window_seconds:(t.mode==='REHEARSAL'?20:300);

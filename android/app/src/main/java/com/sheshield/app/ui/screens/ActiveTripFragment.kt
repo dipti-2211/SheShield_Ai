@@ -45,6 +45,7 @@ class ActiveTripFragment:ScreenFragment(){
         evidenceStatus=Ui.text(c,"",13,tint=R.color.on_surface_secondary);panel.addView(evidenceStatus)
         normal=Ui.col(c)
         normal.addView(Ui.button(c,"Walk with me · set a check-in"){chooseWatch()})
+        normal.addView(Ui.button(c,"Why this route? · sources & gaps",true){current?.route()?.let{RouteEvidenceDialog.show(c,it)}})
         normal.addView(Ui.button(c,"Share companion link",true){shareCompanion()})
         recalc=Ui.button(c,"Find another way",true){chooseReroute()};normal.addView(recalc,0)
         normal.addView(Ui.button(c,"End journey",true){end()});normal.addView(Ui.sosButton(c){sos()})
@@ -79,7 +80,7 @@ class ActiveTripFragment:ScreenFragment(){
         if(route!=null){val projection=TripMath.project(LatLng(t.lastLatitude,t.lastLongitude),route);val duration=route.durationSeconds*(projection.remainingMeters/route.distanceMeters).coerceIn(0.0,1.0)
             metrics.text="${(duration/60).toInt().coerceAtLeast(1)} min  ·  ${"%.1f".format(projection.remainingMeters/1000)} km"
             val here=route.segments.firstOrNull{it.startIndex==projection.index}
-            evidenceStatus.text=when{(here?.evidenceCount?:0)>0->"Nearby incident reports on this stretch · open route evidence for context";here?.level=="UNKNOWN"->"Evidence gap here · choose Walk with me if you feel uneasy";else->"Missing reports do not establish safety · grey means unknown"}
+            evidenceStatus.text=when{(here?.evidenceCount?:0)>0->"Reports associated with this stretch · open route evidence for their location limits";route.contextEvidence.orEmpty().isNotEmpty()->"Wider-area reports available · this lane’s safety remains unknown";here?.level=="UNKNOWN"->"Evidence gap here · choose Walk with me if you feel uneasy";else->"Missing reports do not establish safety · grey means unknown"}
             strip.progress=(1-projection.remainingMeters/route.distanceMeters).toFloat()
             maneuver.text=if(projection.remainingMeters<30&&route.destinationSnapMeters>30)"Walking access ends here. Your destination pin is ${route.destinationSnapMeters} m away." else if(repo.prefs.getBoolean("arrival_ready",false))"You're near your destination. Confirm arrival when ready." else route.steps.firstOrNull{it.wayPoints.lastOrNull()?.let{i->i>=projection.index}==true}?.instruction?:t.destinationLabel
         }
@@ -134,7 +135,7 @@ class ActiveTripFragment:ScreenFragment(){
             val button=Ui.button(c,(if(r.routeId==selected.routeId)"✓ " else "")+choiceLabel(index,r),true){select(r)};choiceButtons.add(button);choices.addView(button)
         }
         val explanation=Ui.text(c,"",14,tint=R.color.on_surface_secondary);body.addView(explanation)
-        fun describe(r:RouteOption){explanation.text="Selected: option ${proposal.routes.indexOf(r)+1}\n"+(if(r.coverage=="AVAILABLE")"${r.riskLevel.lowercase()} reported exposure" else "Reporting coverage incomplete · safety unknown")+if(proposal.avoidAreas.isNotEmpty())"\nAvoids ${proposal.avoidAreas.size} areas you chose (35 m radius)." else ""}
+        fun describe(r:RouteOption){explanation.text="Selected: option ${proposal.routes.indexOf(r)+1}\n"+(r.decision?.summary?:"Reporting coverage incomplete · safety unknown")+if(proposal.avoidAreas.isNotEmpty())"\nAvoids ${proposal.avoidAreas.size} areas you chose (35 m radius)." else ""}
         describe(selected)
         map.onSelect={id->proposal.routes.firstOrNull{it.routeId==id}?.let{select(it);describe(it)}}
         // Refresh selection text on the card buttons as well as map taps.

@@ -61,7 +61,7 @@ class RouteMapRenderer(context:Context,state:Bundle?=null){
         source("alternatives",options.filter{it.routeId!=selected}.map{line(it)})
         val r=options.firstOrNull{it.routeId==selected}?:options.firstOrNull()
         source("selected",r?.let{listOf(line(it))}.orEmpty())
-        listOf("unknown","reports","high","medium").forEach{level->source(level,r?.segments?.filter{(if(level=="reports")it.evidenceCount>0 else it.level.equals(level,true))&&it.startIndex in r.geometry.indices&&it.endIndex in r.geometry.indices}?.map{s->Feature.fromGeometry(LineString.fromLngLats(r.geometry.subList(s.startIndex,s.endIndex+1).map{Point.fromLngLat(it[0],it[1])}))}.orEmpty())}
+        listOf("unknown","reports","high","medium").forEach{level->source(level,r?.segments?.filter{(if(level=="reports")it.evidenceCount>0 else if(!r.isDemoData)level=="unknown" else it.level.equals(level,true))&&it.startIndex in r.geometry.indices&&it.endIndex in r.geometry.indices}?.map{s->Feature.fromGeometry(LineString.fromLngLats(r.geometry.subList(s.startIndex,s.endIndex+1).map{Point.fromLngLat(it[0],it[1])}))}.orEmpty())}
         val endpointPoints=r?.geometry?.takeIf{it.size>1}?.let{listOf(requestedOrigin?.let{p->listOf(p.longitude,p.latitude)}?:it.first(),requestedDestination?.let{p->listOf(p.longitude,p.latitude)}?:it.last())}.orEmpty()
         source("endpoints",endpointPoints.map{p->Feature.fromGeometry(Point.fromLngLat(p[0],p[1]))})
         if(fit&&r!=null&&r.geometry.size>1)view.post{runCatching{m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes((r.geometry+endpointPoints).map{LatLng(it[1],it[0])}).build(),Ui.dp(view.context,40)))}}

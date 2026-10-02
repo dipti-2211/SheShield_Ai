@@ -1,121 +1,70 @@
-# Street evidence and its limits
+# Salt Lake evidence: sources, locations and limits
 
-**No verified live Kolkata incident feed is installed.** Live routes show unknown evidence. The recorded demo uses fictional incidents, prominently labelled. A working importer is not a data partnership or a claim that every incident is reported.
+## What is installed
 
-## What the public sources support
+The pilot covers Salt Lake research, with priority Sectors II and V. The first dataset is [reports.v4.json](../evidence/saltlake/reports.v4.json): **five real published reports, zero admitted street incidents, zero current observations, and zero complete reporting areas**. Two reports are historical. Source checks were automated; no independent human location checks have been invented.
+
+This is a small convenience sample from one publisher. It does not describe the frequency or distribution of crime across Salt Lake. Reports are linked with short original summaries; article text, photographs, victim identities and residential addresses are not redistributed. A source check establishes what was reported, not whether an allegation is proven.
+
+The app displays these references as wider-area context. No report is assigned to every street in its sector. The search rectangle is a coarse research filter, not an official sector boundary, crime location or reporting coverage.
+
+## The sources we can actually use
 
 Research checked on 2 October 2026:
 
-| Source | Useful for | Does not establish |
+| Source | Use | Limit |
 | --- | --- | --- |
-| [NCRB district crime catalog](https://www.data.gov.in/catalog/district-wise-crimes-committed-against-women) | Regional reported-crime context. This catalog describes district totals and lists an older update date. | Which street on a 1 km walk had an incident; current, complete Kolkata coverage. |
-| [Kolkata Police station directory](https://kolkatapolice.gov.in/know-police-station/) and [contacts](https://kolkatapolice.gov.in/contact/) | Police station addresses, contacts and jurisdiction descriptions. | Incident coordinates, crime density, or a promise that a particular station entrance is accessible now. |
-| [Safetipin methodology](https://safetipin.com/methodology/) | A possible partner for dated street audits: lighting, visibility, walkability and related observations. | A publicly licensed feed that this project already has access to, or criminal records. |
-| Reviewed news reports | A reported event with an attributable source and a location uncertainty. | Complete reporting coverage. A newspaper's silence cannot certify a street. |
+| [Bidhannagar Police station directory](https://bidhannagarcitypolice.gov.in/police_station.php/) | Appropriate contacts for Salt Lake incident-location requests | Station/arrest addresses are not incident locations; no complete public street feed is installed |
+| [NDITA](https://ndita.org/) | Sector V authority listing street-lighting services; request dated faults, repairs and walking-access records | A lamp inventory or tender does not prove working lighting now |
+| [Safetipin Kolkata audit](https://safetipin.com/wp-content/uploads/2021/04/social-vulnerability-audit-report-in-kolkata-safetipin-2021.pdf) | Evidence that a provider has audited Kolkata streets | Its described 2019 collection is historical, not current Salt Lake conditions or a license for this app |
+| [Safetipin data integration](https://safetipin.com/data-for-change/) | Potential licensed audit partnership | Delhi/Pune integrations do not establish our access to a current Salt Lake feed |
+| [Safecity data policy](https://webapp.safecity.in/privacy_policy) | Potential deidentified community-report partnership | Institutional access requires a request; community reports are not official criminal records |
+| [NCRB district catalog](https://www.data.gov.in/catalog/district-wise-crimes-committed-against-women) | Regional reported-crime context | District totals cannot locate incidents on a 1 km walk |
+| [CCTNS description](https://www.mha.gov.in/en/divisionofmha/women-safety-division/cctns) | Explains police information systems and citizen services | Does not give this project access to a bulk street-location feed |
 
-Do not geocode a district statistic to its centroid and call it a street incident. Do not map every article about the same case as a separate crime. Do not assign a private/residential incident to passing pedestrians' street exposure. No offender database or victim profiles are needed.
+See [source decisions](../evidence/saltlake/SOURCE_RESEARCH.md) and the concrete [partner requests](PARTNER_REQUESTS.md). No organization has been contacted or agreed to supply data. The user's own field survey is not a dependency; authorized provider records and real independent source/location reviewers can supply the needed evidence.
 
-## Implemented admission rules
+## Admission and matching, version 4
 
-`api/src/evidence.js` validates a version 3 dataset supplied through `INCIDENT_DATA_PATH`.
+`api/src/street_evidence.js` enforces the current format. Its data steward must establish the original source, permission, accuracy and reviewer identities outside the parser. **A pair of reviewer IDs does not authenticate people or prove independent work.** The current dataset remains explicitly `independently_validated: false`.
 
-- A steward must supply a source registry, geographic scope, license, source record URL and ID, shared event ID, incident/retrieval/review timestamps, reviewer reference, category, setting, and coordinate uncertainty.
-- Registry bounds constrain plausible coordinates. They **do not** establish reporting coverage. This rejects a Kolkata record with latitude and longitude accidentally swapped.
-- Only reviewed public-space incidents with `verified_coordinate` or `verified_address` and uncertainty of 1–100 m enter street scoring. The steward must inspect the source and location; software cannot certify truth merely because `verification` says `reviewed`.
-- Neighbourhood centroids, imprecise locations and non-public settings are kept as area context, outside street scoring. Records without usable provenance, valid dates or plausible coordinates are rejected. The engine retains only a small field allowlist; it does not publish victim names, narratives or addresses.
-- Stable event IDs and publisher record IDs prevent double counting. Cross-publisher event linkage remains a review responsibility.
-- Only the previous 365 days contribute. Old or invalid imported dates are rejected; already-loaded records age out during route evaluation.
-- A source's complete geocoded feed can establish reporting coverage only with a documented collection method, an explicit reporting window covering the analysis year, resolution no worse than 100 m, and updates/window end within 30 days. News cannot declare coverage. Rejected incident rows prevent a dataset being treated as clean complete coverage.
-- Reporting coverage is checked against the **whole 150 m route corridor**, not just endpoints or a city bounding box. A rectangle must lie inside the area actually collected; use multiple conservative rectangles instead of enclosing an irregular jurisdiction and claiming its gaps.
-- The 30-day freshness threshold, 100 m admission threshold, 150 m corridor and exposure weights are conservative prototype choices, not validated predictions of harm.
+1. Register sources with HTTPS references, geographic bounds and reuse basis: `public_reference`, `open_license`, or `permission_granted`. Public links are not an open-data license.
+2. Preserve publisher record IDs and a shared event ID. Check publication, retrieval and review dates. Preserve the event date as an interval (`exact`, `approximate`, `day`, `month`, or `range`); do not substitute publication date for incident date. A report from today can retain its whole calendar-day interval before that day ends; the publication bounds occurrence and no hour is invented.
+3. Classify the reported setting and status. Private, campus and transport incidents remain separate context. A police-record source or news report does not imply conviction.
+4. Choose a location: `street_section`, `possible_sections`, `named_area`, or `unresolved`. Only a referenced public street section, uncertainty at most 25 m, and two distinct real human/provider location reviews can become street evidence. Review source, aliases, sides, entrances, parallel roads, bridges, walls and road levels. A rejected review blocks admission pending resolution. Software checks these declarations; it cannot inspect every physical barrier itself.
+5. A street section must follow its registered road geometry: samples every 5 m must be within 25 m, and the section must be no longer than 2 km. Conflicting sections or publisher IDs reused for different events are quarantined. Case linkage across articles remains a steward responsibility.
+6. Compare the actual walking route in pieces up to 10 m. Match the routing instruction's street name or reviewed alias, line direction, and section geometry within 15 m. Unnamed or unmatching paths remain unresolved. Nearby parallel roads and perpendicular crossings do not inherit a report. Side-specific and level-specific evidence are not supported and are rejected. Same-named parallel or stacked roads still require provider GIS and independent review; name matching alone cannot resolve them.
+7. Only event intervals wholly inside the last 365 days can contribute a street count. Older events remain historical context and age out again at request time. Reports matched to a short section are not extended along the whole road.
 
-Run an audit before configuring the API:
+**10 m is calculation resolution, not claimed crime-location accuracy.** Names, aliases and incomplete map geometry can also cause missed matches. The tests establish conservative behavior on synthetic edge cases; real attribution accuracy is still unmeasured.
+
+### Observations and reporting coverage are different
+
+Street-condition observations need an authorized official/partner source, real direct observation, evidence reference, two actual reviewers, public street geometry and an expiry. Maximum prototype TTLs are 24 hours for lighting/obstructions and 6 hours for walking-access closures/openings. They expire at request time. Opposing observations stay visible as unresolved and cannot establish observation coverage. Daylight/after-dark observations are displayed but do not count as current route-wide conditions without an arrival-time model. These thresholds require provider validation.
+
+Reporting coverage needs a licensed official/partner complete geocoded feed, method reference, all supported categories, public-space inclusion, matching total/geocoded counts reconciled to the supplied public-space records for each area and window, the analysis-year window and updates/window end within 30 days. Unresolved current public-space rows and rejected records block completeness. The whole 150 m corridor must fit inside conservative supplied collection rectangles. News and the research rectangle never declare coverage. This means coverage of supplied reporting, not completeness of all crime or absence of unreported harm.
+
+**Live safety always remains UNKNOWN.** Live options sort by walking time. The legacy numerical score fields are zero compatibility placeholders and must not be interpreted as risk estimates. Current reviewed conditions and incident history are explained, never converted into a claimed probability of harm. The fictional recorded rehearsal keeps its old exposure simulation and cannot certify live streets.
+
+## Review, validate and publish
+
+Use Node 24 (the portable workspace binary is `.tools/runtime/node/bin/node`):
 
 ```bash
-node scripts/audit_incidents.mjs /path/to/reviewed-incidents.json
+node scripts/audit_incidents.mjs evidence/saltlake/reports.v4.json
+node scripts/evidence_workbench.mjs evidence/saltlake/reports.v4.json artifacts/saltlake-review
+node scripts/evaluate_evidence.mjs evidence/saltlake/reports.v4.json evidence/saltlake/independent-reference.json artifacts/saltlake-accuracy.json
+node scripts/publish_evidence.mjs evidence/saltlake/reports.v4.json api/data/evidence-snapshots
 ```
 
-The report prints counts and rejection reasons, not raw incident payloads. An invalid schema or rejected rows produce a nonzero exit code. `/v1/evidence/status` exposes the audit and source registry to the enrolled app. Restart the API after replacing its dataset.
+The review packet is a local HTML source browser plus an empty review template. Real reviewers independently inspect and enter supported street geometry and completed reviews into a **new** source dataset version. Blank reviews and automated identities never pass street admission. Maintain a steward identity registry privately; do not publish names/emails or copy victim narratives into summaries. All location proposals are reviewed against the source, not generated from news keywords.
 
-## Version 3 example
+The evaluator compares admitted street IDs with an independently prepared reference sample. It reports wrong-street assignments, missed resolved cases and false attribution of unresolved cases. Empty references produce `UNMEASURED` and null accuracy rates, not 100%. Keep a held-out sample that the geocoder/steward did not use to tune matching, disclose sample selection and size, and inspect route crossings/parallel paths separately. Do not invent test cases as real evaluation observations.
 
-**Schema illustration only. The following is synthetic and must not be loaded as real evidence.** Replace every illustrative record with independently reviewed, licensed source material. The example intentionally has `is_real_data: false` so it cannot accidentally certify a live route.
+The publisher refuses rejected records and writes an immutable version/hash snapshot with a manifest. Set `INCIDENT_DATA_PATH` in `api/.env` to its printed `dataset_path`, then restart the API without changing its database or tunnel. For Docker, use the corresponding snapshot path under the mounted `/data/evidence-snapshots/` directory rather than the host absolute path. Authenticated `/v1/evidence/status` exposes version, SHA-256, audit counts, source registry, current observations and coverage. Routes retain the version and evaluation time used to calculate them. The API loads a snapshot at startup; published corrections require a new version and restart. Existing journeys retain their chosen geometry and watches; recalculating a route reads the newly installed data.
 
-```json
-{
-  "schema_version": 3,
-  "is_real_data": false,
-  "sources": [{
-    "id": "example-feed",
-    "name": "Synthetic schema example",
-    "kind": "official",
-    "url": "https://example.org/feed",
-    "license": "Illustration only",
-    "bounds": [88.20, 22.40, 88.60, 22.80]
-  }],
-  "incidents": [{
-    "event_id": "example-shared-case-id",
-    "source_id": "example-feed",
-    "source_record_id": "example-publisher-record",
-    "source_url": "https://example.org/report/1",
-    "lat": 22.567,
-    "lng": 88.350,
-    "category": "harassment",
-    "setting": "public_space",
-    "incident_date": "2026-09-30T12:00:00Z",
-    "retrieved_at": "2026-10-01T12:00:00Z",
-    "reviewed_at": "2026-10-01T14:00:00Z",
-    "reviewed_by": "internal-steward-reference",
-    "verification": "reviewed",
-    "location_method": "verified_coordinate",
-    "precision_meters": 30
-  }],
-  "coverage": { "areas": [] }
-}
-```
+Version 3 files remain readable for compatibility, but their nearby point reports are explicitly uncertain street context and cannot produce live safety rankings. `scripts/export_pinecone.mjs` writes unreviewed staging only; Pinecone similarity cannot establish geography. `n8n/workflows/01_plan_trip_risk.json` is retired and refuses execution. Use the API for planning and Cloud workflow 04 for delivery.
 
-An empty `coverage.areas` is correct for individually curated reports. Positive evidence will still appear; the app keeps overall safety unknown. For an actual complete feed, an area additionally needs:
+## Before claiming useful local accuracy
 
-```json
-{
-  "source_id": "example-feed",
-  "bounds": [88.34, 22.55, 88.36, 22.59],
-  "collection": "complete_geocoded_feed",
-  "resolution_meters": 50,
-  "window_start": "2025-09-01T00:00:00Z",
-  "window_end": "2026-10-01T00:00:00Z",
-  "updated_at": "2026-10-01T12:00:00Z",
-  "method_url": "https://example.org/collection-method"
-}
-```
-
-Categories: `violent_crime`, `sexual_assault`, `robbery`, `kidnapping`, `assault`, `harassment`, `theft`, `vandalism`, `traffic_incident`, `other`.
-
-## What a short walk now shows
-
-Road geometry is divided into pieces no longer than 50 m; turn indexes are remapped to preserve navigation. This is **analysis resolution**, not a claim of 50 m crime-location accuracy.
-
-Each route exposes:
-
-- Reports and gaps along distance from the start, including a continuous unknown stretch.
-- Distance-weighted reported exposure and the highest local exposure; a long quiet section cannot hide the peak in the comparison.
-- Coordinate uncertainty: e.g. an incident 200 m away with ±100 m uncertainty may overlap the 150 m corridor. The conservative nearest plausible distance contributes to the heuristic, and the full distance interval is shown.
-- Source links, review dates, report counts, and reporting windows.
-
-When any alternative lacks complete comparable reporting coverage, routes sort by walking time. The UI does not select a “safest route.” When alternatives have complete matching source windows, the ranking considers peak local exposure, then route average and time.
-
-**Remaining spatial limits:** straight geographic distance does not determine whether two points share a street, entrance, bridge, wall, or accessible path. Road-side matching and barrier-aware incident attribution require reviewed street references or police GIS. The app explicitly says a nearby report can be on another street. Coverage of reported incidents also cannot measure unreported harm.
-
-## Pinecone
-
-No Pinecone credentials/index or incident dataset are configured in the inspected workspace. Embedding similarity cannot substitute for incident geography.
-
-`scripts/export_pinecone.mjs` now writes an **unreviewed staging file** (`INCIDENT_STAGING_PATH`, default `./data/incidents-staging.json` from `api/`). It cannot write to the configured live data path. It preserves available source/precision metadata and sets `is_real_data: false` and `verification: pending`. A steward must complete the registry, review and event linkage before the version 3 importer can accept records.
-
-## Practical route to real coverage
-
-Start with two or three named station-to-campus/workplace corridors, each 1–2 km. Secure an agreement for de-identified public-space incidents from police or a credible local partner. Ask for source IDs, date ranges, geocoding precision, completeness limits, update cadence, correction/deletion process and permitted reuse.
-
-Have two reviewers independently place each candidate incident against the actual public street/entrance. Disagreement becomes a wider uncertainty or area context, never a confident pin. Review duplicated news coverage against the same event ID. Field-audit walking access and lighting in the relevant time window as a **separate conditions dataset**; do not call darkness a crime report. Obtain permission before importing a commercial/partner audit.
-
-Before expanding, measure held-out geocoding error, missed/duplicated cases, coverage by route metre and time window, stale records, check-in completion and false escalation. Publish the sample size and results. There is no honest substitute for this validation through a larger synthetic heatmap.
+Obtain real licensed incident/observation records, two independent qualified location reviewers and an independent reference sample. Publish measured wrong-street and missed-match results, source omissions and freshness. If suitable street data cannot be obtained, present this as a transparent journey companion with known gaps, personal watches and rerouting; a comprehensive criminal-map claim is unsupported.

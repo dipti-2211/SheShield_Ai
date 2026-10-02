@@ -91,7 +91,7 @@ class TripTrackingService:LifecycleService() {
         val projection=TripMath.project(LatLng(fix.latitude,fix.longitude),route)
         repo.updateLocation(fix,projection.index)
         if(repo.active()?.route()?.revision!=route.revision)return
-        val segment=route.segments.firstOrNull{it.startIndex==projection.index&&it.level in listOf("MEDIUM","HIGH")}
+        val segment=route.segments.firstOrNull{trip.isRehearsal&&route.isDemoData&&it.startIndex==projection.index&&it.level in listOf("MEDIUM","HIGH")}
         if(segment!=null&&projection.distanceMeters<50&&fix.accuracy<=50){
             if(candidate==segment.level)consecutive++ else{candidate=segment.level;consecutive=1}
             if(consecutive>=2&&trip.state==TripState.ACTIVE){repo.checkIn(segment.id);repo.active()?.takeIf{it.state==TripState.CHECK_IN_PENDING}?.let{NotificationHelper.showCheckInNotification(this,it)}}

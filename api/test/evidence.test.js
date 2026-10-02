@@ -47,7 +47,8 @@ test('short routes get pieces no longer than 50 m and turn instructions retain t
  for(let i=1;i<r.geometry.length;i++)assert.ok(haversine(r.geometry[i-1][1],r.geometry[i-1][0],r.geometry[i][1],r.geometry[i][0])*1000<=50.01);
  const d=auditDataset(dataset(),now),scored=assessRoute(route,d,now);
  assert.equal(scored.coverage,'AVAILABLE');assert.equal(scored.incident_count,1);
- assert.ok(scored.passport.peak_exposure>scored.risk_score*2);
+ assert.equal(scored.risk_score,0);assert.equal(scored.passport.peak_exposure,0);
+ assert.ok(scored.segments.every(s=>s.score===0&&s.risk_level==='UNKNOWN'));
  assert.ok(scored.passport.stretches.some(s=>s.kind==='REPORTS'&&s.to_meters-s.from_meters<500));
 });
 test('partial and expired feeds expose a continuous gap; a later request cannot reuse expired coverage',()=>{

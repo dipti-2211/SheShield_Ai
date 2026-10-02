@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: SheShield API
-  version: 3.0.0
+  version: 4.0.0
   description: Installation-owned journey state and idempotent commands. Coordinates in route geometry are [longitude, latitude].
 servers:
   - url: http://localhost:8787
@@ -34,7 +34,7 @@ paths:
   /v1/evidence/status:
     get:
       responses:
-        '200': {description: Incident admission counts, rejection reasons, source registry and coverage area count; metadata validation does not authenticate source truth}
+        '200': {description: Dated snapshot version and SHA-256, street/context admission counts, source/reuse registry, research scopes, current observations and feed coverage; metadata validation does not authenticate source truth or independent review}
   /v1/places:
     get:
       parameters:
@@ -58,7 +58,7 @@ paths:
                 origin: {$ref: '#/components/schemas/Place'}
                 destination: {$ref: '#/components/schemas/Place'}
       responses:
-        '200': {description: Owned expiring plan with one or more scored walking routes}
+        '200': {description: Owned expiring walking plan with source-linked street evidence, separate area context, expiring observations, dataset version and decision reasons. Live safety remains UNKNOWN and alternatives sort by walking time; numerical scores are compatibility placeholders}
         '422': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /v1/trips:
