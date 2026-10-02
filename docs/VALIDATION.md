@@ -163,3 +163,8 @@ Screenshots are under `artifacts/`. Simulated replay and delivery results valida
 - Basemap tiles need internet or an existing cache. Recorded geometry and local rehearsal continue without the API; editable custom route calculation needs the provider/API. There is no promised offline street map.
 - The local API and temporary public tunnel must remain running. A quick-tunnel URL changes on restart, requiring updates to the API public URL and Android connection. The prepared worker reads the API URL from each authenticated job; a manually fixed Cloud Configuration URL also needs updating. Production uptime/deployment is outside these observed checks.
 - Force-stopping Android stops its local service until the app reopens. A previously registered live API deadline can still expire server-side. GPS accuracy and walking-map coverage limit navigation precision; inaccessible pins are rejected instead of receiving fabricated paths.
+
+
+## UI redesign verification
+
+See [design notes](DESIGN.md). Android build, 14 JVM tests, and lint passed with zero lint errors (120 existing/current warnings). The device test `DesignPresentationTest` passed message, choice, custom-input and bottom-sheet inflation in light and dark appearances. Browser companion checks passed. Manual emulator checks covered dark route comparison, source sheets, practice SAFE acknowledgement and simulated SOS updates. These checks do not establish physical-device, TalkBack or enlarged-text coverage.

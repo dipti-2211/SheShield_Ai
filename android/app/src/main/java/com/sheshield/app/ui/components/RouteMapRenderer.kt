@@ -1,5 +1,7 @@
 package com.sheshield.app.ui.components
 
+import com.sheshield.app.R
+
 import android.content.Context
 import android.graphics.PointF
 import android.os.Bundle
@@ -34,26 +36,26 @@ class RouteMapRenderer(context:Context,state:Bundle?=null){
     init{
         Mapbox.getInstance(context);view=MapView(context);view.onCreate(state)
         view.getMapAsync{m->map=m
-            m.setStyle(Style.Builder().fromJson("""{"version":8,"sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"attribution":"© OpenStreetMap contributors"}},"layers":[{"id":"osm","type":"raster","source":"osm","paint":{"raster-saturation":-0.65,"raster-contrast":-0.1}}]}""")){s->
+            m.setStyle(Style.Builder().fromJson("""{"version":8,"sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"attribution":"© OpenStreetMap contributors"}},"layers":[{"id":"osm","type":"raster","source":"osm","paint":{"raster-saturation":-0.65,"raster-contrast":-0.05,"raster-brightness-max":${if(view.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)0.45 else 1.0}}}]}""")){s->
                 style=s;m.uiSettings.isCompassEnabled=false
                 listOf("alternatives","selected","unknown","reports","high","medium","endpoints","position","avoidance","report-areas","lit-stretches","unlit-stretches","nearby-places").forEach{s.addSource(GeoJsonSource(it,FeatureCollection.fromFeatures(emptyArray<Feature>())))}
-                s.addLayer(FillLayer("report-area-fill","report-areas").withProperties(fillColor("#C98B2E"),fillOpacity(.08f)))
-                s.addLayer(LineLayer("report-area-outline","report-areas").withProperties(lineColor("#C98B2E"),lineWidth(1.5f),lineDasharray(arrayOf(3f,3f))))
-                s.addLayer(FillLayer("avoidance-fill","avoidance").withProperties(fillColor("#D65454"),fillOpacity(.25f)))
-                s.addLayer(LineLayer("avoidance-outline","avoidance").withProperties(lineColor("#D65454"),lineWidth(2f)))
-                s.addLayer(LineLayer("alternative-lines","alternatives").withProperties(lineColor("#9699AA"),lineWidth(4f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
-                s.addLayer(LineLayer("route-outline","selected").withProperties(lineColor("#FFFFFF"),lineWidth(9f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
-                s.addLayer(LineLayer("route-line","selected").withProperties(lineColor("#6554D9"),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
-                s.addLayer(LineLayer("unknown-line","unknown").withProperties(lineColor("#747887"),lineWidth(3f),lineOpacity(.55f),lineDasharray(arrayOf(2f,2f))))
-                s.addLayer(LineLayer("report-line","reports").withProperties(lineColor("#C98B2E"),lineWidth(5f)))
-                s.addLayer(LineLayer("medium-line","medium").withProperties(lineColor("#C98B2E"),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND)))
-                s.addLayer(LineLayer("high-line","high").withProperties(lineColor("#D65454"),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND)))
-                s.addLayer(LineLayer("lit-detail","lit-stretches").withProperties(lineColor("#3285FF"),lineWidth(6f)))
-                s.addLayer(LineLayer("unlit-detail","unlit-stretches").withProperties(lineColor("#C98B2E"),lineWidth(6f),lineDasharray(arrayOf(3f,2f))))
-                s.addLayer(CircleLayer("nearby-place-dots","nearby-places").withProperties(circleRadius(5f),circleColor("#3285FF"),circleStrokeWidth(2f),circleStrokeColor("#FFFFFF")))
-                s.addLayer(CircleLayer("endpoint-dots","endpoints").withProperties(circleRadius(6f),circleColor("#6554D9"),circleStrokeWidth(3f),circleStrokeColor("#FFFFFF")))
-                s.addLayer(CircleLayer("position-halo","position").withProperties(circleRadius(18f),circleColor("#3285FF"),circleOpacity(.18f)))
-                s.addLayer(CircleLayer("position-dot","position").withProperties(circleRadius(7f),circleColor("#3285FF"),circleStrokeWidth(3f),circleStrokeColor("#FFFFFF")))
+                s.addLayer(FillLayer("report-area-fill","report-areas").withProperties(fillColor(Ui.color(view.context,R.color.risk_medium)),fillOpacity(.08f)))
+                s.addLayer(LineLayer("report-area-outline","report-areas").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(1.5f),lineDasharray(arrayOf(3f,3f))))
+                s.addLayer(FillLayer("avoidance-fill","avoidance").withProperties(fillColor(Ui.color(view.context,R.color.risk_high)),fillOpacity(.25f)))
+                s.addLayer(LineLayer("avoidance-outline","avoidance").withProperties(lineColor(Ui.color(view.context,R.color.risk_high)),lineWidth(2f)))
+                s.addLayer(LineLayer("alternative-lines","alternatives").withProperties(lineColor(Ui.color(view.context,R.color.on_surface_secondary)),lineWidth(4f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
+                s.addLayer(LineLayer("route-outline","selected").withProperties(lineColor(Ui.color(view.context,R.color.surface)),lineWidth(9f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
+                s.addLayer(LineLayer("route-line","selected").withProperties(lineColor(Ui.color(view.context,R.color.purple_primary)),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
+                s.addLayer(LineLayer("unknown-line","unknown").withProperties(lineColor(Ui.color(view.context,R.color.risk_unknown)),lineWidth(3f),lineOpacity(.55f),lineDasharray(arrayOf(2f,2f))))
+                s.addLayer(LineLayer("report-line","reports").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(5f)))
+                s.addLayer(LineLayer("medium-line","medium").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND)))
+                s.addLayer(LineLayer("high-line","high").withProperties(lineColor(Ui.color(view.context,R.color.risk_high)),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND)))
+                s.addLayer(LineLayer("lit-detail","lit-stretches").withProperties(lineColor(Ui.color(view.context,R.color.purple_primary)),lineWidth(6f)))
+                s.addLayer(LineLayer("unlit-detail","unlit-stretches").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(6f),lineDasharray(arrayOf(3f,2f))))
+                s.addLayer(CircleLayer("nearby-place-dots","nearby-places").withProperties(circleRadius(5f),circleColor(Ui.color(view.context,R.color.purple_primary)),circleStrokeWidth(2f),circleStrokeColor(Ui.color(view.context,R.color.surface))))
+                s.addLayer(CircleLayer("endpoint-dots","endpoints").withProperties(circleRadius(6f),circleColor(Ui.color(view.context,R.color.purple_primary)),circleStrokeWidth(3f),circleStrokeColor(Ui.color(view.context,R.color.surface))))
+                s.addLayer(CircleLayer("position-halo","position").withProperties(circleRadius(18f),circleColor(Ui.color(view.context,R.color.purple_primary)),circleOpacity(.18f)))
+                s.addLayer(CircleLayer("position-dot","position").withProperties(circleRadius(7f),circleColor(Ui.color(view.context,R.color.purple_primary)),circleStrokeWidth(3f),circleStrokeColor(Ui.color(view.context,R.color.surface))))
                 m.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(22.56,88.35),13.0));draw(true);updatePosition();drawAvoidance();onReady?.invoke()
             }
             m.addOnMapLongClickListener{p->onPick?.invoke(Place("Selected map location",p.latitude,p.longitude));true}

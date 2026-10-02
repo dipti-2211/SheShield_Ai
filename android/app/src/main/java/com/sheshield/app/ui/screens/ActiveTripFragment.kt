@@ -34,38 +34,41 @@ class ActiveTripFragment:ScreenFragment(){
     private var previewMap:RouteMapRenderer?=null
     private var previewDialog:androidx.appcompat.app.AlertDialog?=null
     override fun onCreateView(inflater:LayoutInflater,container:ViewGroup?,state:Bundle?):View{
-        val c=requireContext();val root=Ui.col(c);root.setBackgroundColor(Ui.color(c,R.color.background));root.addView(Ui.col(c,20).apply{addView(Ui.header(c,"Your journey",back={main.navigate(R.id.homeFragment)}))})
+        val c=requireContext();val root=Ui.col(c);root.setBackgroundColor(Ui.color(c,R.color.background));root.addView(Ui.col(c,16).apply{addView(Ui.header(c,"Your journey",back={main.navigate(R.id.homeFragment)}))})
         val frame=FrameLayout(c);val map=RouteMapRenderer(c,state);map.onArea={a->WalkingDetails.area(c,a){id->requestAlternative(avoidAreaId=id)}};map.onPlace={p->WalkingDetails.place(c,p){id->requestAlternative(viaPlaceId=id)}};renderer=map;frame.addView(map.view,FrameLayout.LayoutParams(-1,-1))
-        frame.addView(Ui.icon(c,R.drawable.ic_location,"Recenter on your position"){map.recenter()},FrameLayout.LayoutParams(Ui.dp(c,48),Ui.dp(c,48),Gravity.BOTTOM or Gravity.END).apply{setMargins(0,0,Ui.dp(c,16),Ui.dp(c,36))})
-        frame.addView(Ui.button(c,"SOS",danger=true){sos()},FrameLayout.LayoutParams(Ui.dp(c,100),Ui.dp(c,54),Gravity.TOP or Gravity.END).apply{setMargins(0,Ui.dp(c,12),Ui.dp(c,16),0)})
+        frame.addView(Ui.icon(c,R.drawable.ic_location,"Recenter on your position"){map.recenter()},FrameLayout.LayoutParams(Ui.dp(c,48),Ui.dp(c,48),Gravity.BOTTOM or Gravity.END).apply{setMargins(0,0,Ui.dp(c,16),Ui.dp(c,32))})
+        frame.addView(Ui.icon(c,R.drawable.ic_layers,"Map details"){WalkingDetails.layer(c,map)},FrameLayout.LayoutParams(Ui.dp(c,48),Ui.dp(c,48),Gravity.TOP or Gravity.START).apply{setMargins(Ui.dp(c,16),Ui.dp(c,12),0,0)})
+        frame.addView(Ui.button(c,"SOS",danger=true){sos()},FrameLayout.LayoutParams(Ui.dp(c,88),Ui.dp(c,52),Gravity.TOP or Gravity.END).apply{setMargins(0,Ui.dp(c,12),Ui.dp(c,16),0)})
         root.addView(frame,LinearLayout.LayoutParams(-1,0,1f))
-        val panel=Ui.col(c,20);status=Ui.text(c,"Preparing monitoring…",14,true,R.color.risk_low);panel.addView(status);panel.addView(Ui.space(c,10))
-        metrics=Ui.text(c,"Waiting for your location",26,true);panel.addView(metrics);maneuver=Ui.text(c,"Continue along your selected route",15,tint=R.color.on_surface_secondary);panel.addView(maneuver)
-        strip=ExposureStrip(c);panel.addView(strip,LinearLayout.LayoutParams(-1,Ui.dp(c,32)))
+        val panel=Ui.col(c,20);panel.background=Ui.background(c,R.color.surface,24)
+        status=Ui.text(c,"Preparing your journey…",13,true,R.color.purple_primary);panel.addView(status);panel.addView(Ui.space(c,12))
+        metrics=Ui.text(c,"Finding your position",30,true);panel.addView(metrics);panel.addView(Ui.space(c,8));maneuver=Ui.text(c,"Continue along your selected route",16,tint=R.color.on_surface_secondary);panel.addView(maneuver)
+        strip=ExposureStrip(c);panel.addView(strip,LinearLayout.LayoutParams(-1,Ui.dp(c,24)))
         evidenceStatus=Ui.text(c,"",13,tint=R.color.on_surface_secondary);panel.addView(evidenceStatus)
         normal=Ui.col(c)
-        normal.addView(Ui.button(c,"Map details",true){renderer?.let{WalkingDetails.layer(c,it)}})
-        normal.addView(Ui.button(c,"Find a mapped place nearby",true){nearbyPlaces()})
         normal.addView(Ui.button(c,"Walk with me · set a check-in"){chooseWatch()})
-        normal.addView(Ui.button(c,"Why this route? · sources & gaps",true){current?.route()?.let{RouteEvidenceDialog.show(c,it)}})
-        normal.addView(Ui.button(c,"Share companion link",true){shareCompanion()})
-        recalc=Ui.button(c,"Find another way",true){chooseReroute()};normal.addView(recalc,0)
-        normal.addView(Ui.button(c,"End journey",true){end()});normal.addView(Ui.sosButton(c){sos()})
-        if(repo.demo()){val row=Ui.row(c);row.addView(Ui.button(c,"Pause / play",true){service(TripTrackingService.ACTION_PAUSE)}.apply{layoutParams=LinearLayout.LayoutParams(0,Ui.dp(c,48),1f)});row.addView(Ui.button(c,"Next check-in",true){service(TripTrackingService.ACTION_SKIP)}.apply{layoutParams=LinearLayout.LayoutParams(0,Ui.dp(c,48),1f)});normal.addView(row,0);demoControls=row;row.visibility=View.GONE}
+        val actions=Ui.row(c)
+        recalc=Ui.button(c,"Find another way",true){chooseReroute()}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f).apply{topMargin=Ui.dp(c,10);marginEnd=Ui.dp(c,8)}};actions.addView(recalc)
+        actions.addView(Ui.button(c,"Nearby places",true){nearbyPlaces()}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f).apply{topMargin=Ui.dp(c,10)}});normal.addView(actions);normal.addView(Ui.space(c,14))
+        normal.addView(Ui.rowItem(c,"Share companion link","Let someone follow this journey",R.drawable.ic_share){shareCompanion()})
+        normal.addView(Ui.divider(c,64));normal.addView(Ui.rowItem(c,"Route insights","Sources and information gaps",R.drawable.ic_info){current?.route()?.let{RouteEvidenceDialog.show(c,it)}})
+        normal.addView(Ui.divider(c,64));normal.addView(Ui.rowItem(c,"Finish journey",null,R.drawable.ic_check){end()})
+        if(repo.demo()){val row=Ui.row(c);row.addView(Ui.button(c,"Pause / play",true){service(TripTrackingService.ACTION_PAUSE)}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f)});row.addView(Ui.button(c,"Next check-in",true){service(TripTrackingService.ACTION_SKIP)}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f)});normal.addView(row,0);demoControls=row;row.visibility=View.GONE}
         panel.addView(normal)
-        check=Ui.col(c);check.addView(Ui.text(c,"Are you safe?",24,true));checkReason=Ui.text(c,"",15,tint=R.color.on_surface_secondary);check.addView(checkReason);countdown=Ui.text(c,"",28,true,R.color.risk_medium);check.addView(countdown)
-        check.addView(Ui.button(c,"I'm safe"){main.tripViewModel.confirmSafe()})
-        check.addView(Ui.button(c,"Request SOS now",danger=true){sos()})
+        check=Ui.col(c);check.addView(Ui.title(c,"Are you safe?",28));check.addView(Ui.space(c,10));checkReason=Ui.text(c,"",15,tint=R.color.on_surface_secondary);check.addView(checkReason);check.addView(Ui.space(c,16))
+        countdown=Ui.text(c,"",44,true,R.color.on_surface).apply{fontFeatureSettings="tnum"};check.addView(countdown);check.addView(Ui.space(c,4));check.addView(Ui.text(c,"Time to respond before contact alerts",13,tint=R.color.on_surface_secondary))
+        val answer=Ui.row(c);answer.addView(Ui.button(c,"I'm safe"){main.tripViewModel.confirmSafe()}.apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f).apply{topMargin=Ui.dp(c,16);marginEnd=Ui.dp(c,8)}})
+        answer.addView(Ui.button(c,"Request SOS",danger=true){sos()}.apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f).apply{topMargin=Ui.dp(c,16)}});check.addView(answer)
+        check.addView(Ui.space(c,14));watchStatus=Ui.text(c,"",13,false,R.color.on_surface_secondary);check.addView(watchStatus)
         check.addView(Ui.button(c,"I'm safe · change my route",true){runAction{repo.confirmSafe();repo.sync();if(repo.active()?.state==TripState.ACTIVE)chooseReroute()}})
-        check.addView(Ui.button(c,"Find another way",true){chooseReroute()})
-        watchStatus=Ui.text(c,"",14,true,R.color.risk_medium);check.addView(watchStatus)
-        check.addView(Ui.button(c,"Find a mapped place nearby",true){nearbyPlaces()})
-        check.addView(Ui.button(c,"Call someone",true){callSomeone()})
-        check.addView(Ui.button(c,"Share companion link",true){shareCompanion()})
-        check.addView(Ui.button(c,"Stop sharing links",true){current?.let{t->runAction{repo.revokeShares(t);com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setMessage("All companion links for this journey have been revoked. Your check-in timer continues.").setPositiveButton("OK",null).show()}}})
+        check.addView(Ui.rowItem(c,"Find another way",null,R.drawable.ic_route){chooseReroute()})
+        check.addView(Ui.rowItem(c,"Nearby places",null,R.drawable.ic_location){nearbyPlaces()})
+        check.addView(Ui.rowItem(c,"Call someone",null,R.drawable.ic_phone){callSomeone()})
+        check.addView(Ui.rowItem(c,"Share companion link",null,R.drawable.ic_share){shareCompanion()})
+        check.addView(Ui.rowItem(c,"Stop sharing links",null,R.drawable.ic_lock){current?.let{t->runAction{repo.revokeShares(t);Ui.info(c,"Sharing stopped","All companion links for this journey are closed. Your check-in timer continues.")}}})
         check.visibility=View.GONE;panel.addView(check)
-        sosPanel=Ui.col(c);sosPanel.addView(Ui.text(c,"SOS is active",24,true,R.color.sos_red));sosPanel.addView(Ui.button(c,"View contact updates"){main.navigate(R.id.sosFragment)});sosPanel.visibility=View.GONE;panel.addView(sosPanel)
-        val scroll=Ui.scroll(c,panel);root.addView(scroll,LinearLayout.LayoutParams(-1,Ui.dp(c,330)));return root
+        sosPanel=Ui.col(c);sosPanel.addView(Ui.title(c,"SOS is active",26));sosPanel.addView(Ui.button(c,"View contact updates",danger=true){main.navigate(R.id.sosFragment)});sosPanel.visibility=View.GONE;panel.addView(sosPanel)
+        val scroll=Ui.scroll(c,panel);root.addView(scroll,LinearLayout.LayoutParams(-1,Ui.dp(c,minOf(470,maxOf(320,(resources.displayMetrics.heightPixels/resources.displayMetrics.density*.53f).toInt())))));return root
     }
     override fun onViewCreated(view:View,state:Bundle?){super.onViewCreated(view,state)
         main.tripViewModel.activeTrip.observe(viewLifecycleOwner){trip->current=trip;if(trip!=null)render(trip)}
@@ -79,7 +82,7 @@ class ActiveTripFragment:ScreenFragment(){
         if(t.lastUpdateMs>0)renderer?.location(LocationFix(t.lastLatitude,t.lastLongitude,t.accuracyMeters,t.lastUpdateMs))
         val age=if(t.lastUpdateMs>0)(System.currentTimeMillis()-t.lastUpdateMs)/1000 else Long.MAX_VALUE
         val problem=repo.prefs.getString("tracking_problem",null)?:repo.prefs.getString("sync_error",null)?:if(route==null)"Saved route unavailable. End this journey and calculate a new route." else null
-        status.text=when{repo.prefs.getBoolean("disarm_pending:${t.tripId}",false)->"Check-in saved on phone. Server cancellation pending; contacts may still be alerted.";t.isRehearsal->if(route?.isDemoData==true)"REHEARSAL · simulated location and contact alerts" else "PRACTICE · real route, simulated position and alerts";problem!=null->problem;age>60->"Location stale · precise segment alerts paused";t.syncStatus=="OFFLINE"->"Local monitoring · server unavailable";t.syncStatus=="PENDING"->"Monitoring · confirmation pending sync";else->"Monitoring · position updated ${age}s ago"+(if(repo.departureProtection(t).enabled)" · departure check-ins on" else "")}
+        status.text=when{repo.prefs.getBoolean("disarm_pending:${t.tripId}",false)->"Check-in saved on phone. Server cancellation pending; contacts may still be alerted.";t.isRehearsal->if(route?.isDemoData==true)"Practice · simulated location and alerts" else "Practice · real route, simulated location and alerts";problem!=null->problem;age>60->"Location stale · precise segment alerts paused";t.syncStatus=="OFFLINE"->"Local monitoring · server unavailable";t.syncStatus=="PENDING"->"Monitoring · confirmation pending sync";else->"Monitoring · position updated ${age}s ago"+(if(repo.departureProtection(t).enabled)" · departure check-ins on" else "")}
         status.setTextColor(Ui.color(c,if(problem!=null||age>60&&!t.isRehearsal)R.color.risk_medium else R.color.risk_low))
         if(route!=null){val projection=TripMath.project(LatLng(t.lastLatitude,t.lastLongitude),route);val duration=route.durationSeconds*(projection.remainingMeters/route.distanceMeters).coerceIn(0.0,1.0)
             metrics.text="${(duration/60).toInt().coerceAtLeast(1)} min  ·  ${"%.1f".format(projection.remainingMeters/1000)} km"
@@ -89,6 +92,7 @@ class ActiveTripFragment:ScreenFragment(){
             maneuver.text=if(projection.remainingMeters<30&&route.destinationSnapMeters>30)"Walking access ends here. Your destination pin is ${route.destinationSnapMeters} m away." else if(repo.prefs.getBoolean("arrival_ready",false))"You're near your destination. Confirm arrival when ready." else route.steps.firstOrNull{it.wayPoints.lastOrNull()?.let{i->i>=projection.index}==true}?.instruction?:t.destinationLabel
         }
         val checking=t.state==TripState.CHECK_IN_PENDING
+        strip.visibility=if(checking)View.GONE else View.VISIBLE
         metrics.visibility=if(checking)View.GONE else View.VISIBLE
         maneuver.visibility=if(checking)View.GONE else View.VISIBLE
         evidenceStatus.visibility=if(checking)View.GONE else View.VISIBLE
@@ -101,12 +105,12 @@ class ActiveTripFragment:ScreenFragment(){
             val registered=repo.prefs.getString("server_event:${t.tripId}","")==t.checkInId
             val seen=repo.prefs.getLong("companion_seen:${t.tripId}",0)
             watchStatus.text=when{
-                t.isRehearsal->"PRACTICE · local countdown, simulated alerts"
-                !registered->"ON THIS PHONE · waiting for server confirmation. Remote escalation is not confirmed."
-                !repo.prefs.getBoolean("delivery_ready:${t.tripId}",false)->"SERVER TIMER SAVED · automatic calls unavailable with current configuration. Call your circle or 112 if needed."
-                else->"SERVER TIMER SAVED · continues if this phone disconnects. Contact calls are configured; delivery is not guaranteed."
+                t.isRehearsal->"Practice check-in · alerts are simulated."
+                !registered->"Waiting for server confirmation. The countdown is on this phone; remote alerts are unconfirmed."
+                !repo.prefs.getBoolean("delivery_ready:${t.tripId}",false)->"Timer registered. Automatic calls are unavailable. You can call your circle or 112."
+                else->"Timer registered. It continues if this phone disconnects. Calls are configured; delivery is unconfirmed."
             }+if(registered&&seen>0)"\nSomeone with your link acknowledged at ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(seen))}." else if(!t.isRehearsal)"\nNo companion has acknowledged this check-in." else ""
-            val seconds=((t.checkInDeadlineMs-System.currentTimeMillis())/1000).coerceAtLeast(0);countdown.text="${seconds/60}:${"%02d".format(seconds%60)} until contact escalation"}
+            val seconds=((t.checkInDeadlineMs-System.currentTimeMillis())/1000).coerceAtLeast(0);countdown.text="${seconds/60}:${"%02d".format(seconds%60)}"}
     }
     private fun requestAlternative(avoidAreaId:String?=null,viaPlaceId:String?=null){val t=current?:return;if(rerouting)return
         runAction{rerouting=true;try{showAlternatives(repo.reroute(t,avoidAreaId=avoidAreaId,viaPlaceId=viaPlaceId))}finally{rerouting=false}}
@@ -114,17 +118,17 @@ class ActiveTripFragment:ScreenFragment(){
     private fun nearbyPlaces(){val t=current?:return;val c=requireContext()
         runAction{
             val result=repo.nearby(t)
-            if(result.places.isEmpty()){com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setMessage("No nearby facilities were found in the map records. This does not establish that none exist. Your companion and call options remain available.").setPositiveButton("OK",null).show();return@runAction}
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setTitle("Mapped places nearby")
+            if(result.places.isEmpty()){Ui.dialog(c).setMessage("No nearby facilities were found in the map records. This does not establish that none exist. Your companion and call options remain available.").setPositiveButton("OK",null).show();return@runAction}
+            Ui.dialog(c).setTitle("Mapped places nearby")
                 .setItems(result.places.map{"${it.name} · ${it.straightDistanceMeters} m map distance"}.toTypedArray()){_,i->WalkingDetails.place(c,result.places[i],if(result.stale)null else {id->requestAlternative(viaPlaceId=id)})}
-                .setNeutralButton("Source limits"){_,_->com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setMessage(result.notice+if(result.stale)"\nThis map snapshot is old; walking options via its places are disabled." else "").setPositiveButton("OK",null).show()}.setNegativeButton("Close",null).show()
+                .setNeutralButton("Source limits"){_,_->Ui.dialog(c).setMessage(result.notice+if(result.stale)"\nThis map snapshot is old; walking options via its places are disabled." else "").setPositiveButton("OK",null).show()}.setNegativeButton("Close",null).show()
         }
     }
     private fun chooseReroute(){
         val trip=current?:return;val c=requireContext()
         if(rerouting)return
         if(trip.isRehearsal){Ui.error(c,"Live journeys can find alternatives from your GPS position. Practice uses a simulated position.");return}
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setTitle("Find another way")
+        Ui.dialog(c).setTitle("Find another way")
             .setItems(arrayOf("Other walking options","Avoid the stretch 100 m ahead","Avoid the stretch 250 m ahead")){_,index->
                 runAction{
                     rerouting=true;recalc.isEnabled=false;status.text="Getting fresh GPS and walking alternatives…"
@@ -158,7 +162,7 @@ class ActiveTripFragment:ScreenFragment(){
         for(i in 0 until choices.childCount){val r=proposal.routes[i];choices.getChildAt(i).setOnClickListener{select(r);describe(r)}}
         val previewHeight=minOf(Ui.dp(c,430),(resources.displayMetrics.heightPixels*.55).toInt())
         val viewport=FrameLayout(c).apply{addView(Ui.scroll(c,body),FrameLayout.LayoutParams(-1,previewHeight))}
-        val dialog=com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setTitle("Choose an alternative")
+        val dialog=Ui.dialog(c).setTitle("Choose an alternative")
             .setView(viewport)
             .setPositiveButton("Use route",null).setNegativeButton("Keep route",null).create()
         previewDialog=dialog
@@ -174,11 +178,11 @@ class ActiveTripFragment:ScreenFragment(){
     }
     private fun chooseWatch(){val t=current?:return;val c=requireContext()
         val choices=if(t.isRehearsal)arrayOf("20 seconds · rehearsal","2 minutes","5 minutes","10 minutes","Until expected arrival + 5 min")else arrayOf("2 minutes","5 minutes","10 minutes","Until expected arrival + 5 min")
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(c).setTitle("Walk with me")
+        Ui.dialog(c).setTitle("Walk with me")
             .setItems(choices){_,index->
                 val selected=choices[index]
                 val seconds=when{selected.startsWith("20")->20;selected.startsWith("2 ")->120;selected.startsWith("5 ")->300;selected.startsWith("10 ")->600;else->{val route=t.route();val remaining=route?.let{TripMath.project(LatLng(t.lastLatitude,t.lastLongitude),it).remainingMeters/it.distanceMeters}?:1.0;((route?.durationSeconds?:300)*remaining.coerceIn(0.0,1.0)+300).toInt().coerceIn(60,1800)}}
-                Ui.confirm(c,"Set a check-in?",if(t.isRehearsal)"This practice watch simulates contact escalation. No real calls or messages." else "Confirm within ${seconds/60} minutes. If you miss it, SheShield requests calls to your configured circle. Wait for SERVER TIMER SAVED before relying on remote escalation. You can share a companion link after starting.","Start watch"){
+                Ui.confirm(c,"Set a check-in?",if(t.isRehearsal)"This practice watch simulates contact escalation. No real calls or messages." else "Confirm within ${seconds/60} minutes. If you miss it, SheShield requests calls to your configured circle. Wait for confirmation that the timer is registered and calls are configured before relying on remote escalation. You can share a companion link after starting.","Start watch"){
                     runAction{repo.armWatch(seconds);main.tripViewModel.startTracking();viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO){repo.sync()}}
                 }
             }.setNegativeButton("Cancel",null).show()
@@ -186,7 +190,7 @@ class ActiveTripFragment:ScreenFragment(){
     private fun callSomeone(){
         val contacts=repo.contacts()
         val names=contacts.map{it.name}+"Emergency · 112"
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("Open phone dialer")
+        Ui.dialog(requireContext()).setTitle("Open phone dialer")
             .setItems(names.toTypedArray()){_,index->
                 val phone=contacts.getOrNull(index)?.phone?:"112"
                 startActivity(Intent(Intent.ACTION_DIAL,android.net.Uri.fromParts("tel",phone,null)))
@@ -198,7 +202,7 @@ class ActiveTripFragment:ScreenFragment(){
     }}
     private fun service(action:String){requireContext().startService(Intent(requireContext(),TripTrackingService::class.java).setAction(action))}
     private fun end(){val t=current?:return;val host=main;Ui.confirm(requireContext(),"Finish this journey?","Location monitoring and pending check-ins will stop.","Finish journey"){
-        main.tripViewModel.endTrip{val remoteNote=if(!t.isRehearsal&&repo.prefs.getBoolean("disarm_pending:${t.tripId}",false))"\nServer stop pending sync; an already registered deadline may still alert contacts." else "";val mins=((System.currentTimeMillis()-t.startedAtMs)/60000).coerceAtLeast(1);host.navigate(R.id.homeFragment);com.google.android.material.dialog.MaterialAlertDialogBuilder(host).setTitle("You've finished your journey")
+        main.tripViewModel.endTrip{val remoteNote=if(!t.isRehearsal&&repo.prefs.getBoolean("disarm_pending:${t.tripId}",false))"\nServer stop pending sync; an already registered deadline may still alert contacts." else "";val mins=((System.currentTimeMillis()-t.startedAtMs)/60000).coerceAtLeast(1);host.navigate(R.id.homeFragment);Ui.dialog(host).setTitle("You've finished your journey")
             .setMessage("${t.destinationLabel}\n$mins minutes · monitoring stopped\nYour journey is saved in Activity.$remoteNote").setPositiveButton("Done",null).show()}
     }}
     override fun onStart(){super.onStart();renderer?.view?.onStart();previewMap?.view?.onStart()}

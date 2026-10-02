@@ -6,7 +6,8 @@ adb=os.environ.get('SHESHIELD_ADB','/mnt/c/Users/rohit/AppData/Local/Android/Sdk
 device=os.environ.get('SHESHIELD_DEVICE_SERIAL','emulator-5554')
 def run(*args): return subprocess.run([adb,'-s',device,*args],check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35).stdout
 def nodes():
- run('shell','uiautomator','dump','/sdcard/sheshield-ui.xml')
+ result=run('shell','uiautomator','dump','/sdcard/sheshield-ui.xml')
+ if b'dumped to' not in result:raise SystemExit('UI hierarchy unavailable. Wake and unlock the device before inspecting it.')
  return list(ET.fromstring(run('shell','cat','/sdcard/sheshield-ui.xml')).iter('node'))
 action=sys.argv[1] if len(sys.argv)>1 else 'inspect'
 if action=='inspect':

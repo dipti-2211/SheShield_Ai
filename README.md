@@ -15,6 +15,10 @@ A native Android journey companion focused on Kolkata: compare real walking rout
 
 **The Salt Lake pilot contains five real published references and zero independently validated street incidents or current observations.** They appear as wider-area context, with two historical reports. Complete street reporting remains unavailable. Read [the data rules](docs/INCIDENT_DATA.md), [source decisions](evidence/saltlake/SOURCE_RESEARCH.md), [prepared partner requests](docs/PARTNER_REQUESTS.md) and [the product rationale](docs/PRACTICALITY.md). Calculation resolution does not establish location accuracy. No personal field survey is required from the user.
 
+## Visual design
+
+The app now uses a shared light/dark design across journey planning, route cards, safety check-ins, contact updates, settings, dialogs and the companion page. See [design notes and previews](docs/DESIGN.md).
+
 ## What changed
 
 - Light and dark native screens with rounded cards, spacious typography, three-tab navigation, route selection, journey monitoring, a circle editor, history, settings, onboarding, and SOS updates.
@@ -55,7 +59,7 @@ Open `android/` in Android Studio (`C:\Program Files\Android\Android Studio`). L
 
 - Emulator API URL: `http://10.0.2.2:8787` when the API is reachable on the Windows host.
 - Physical phone: use the API's public HTTPS tunnel URL, or your laptop's reachable LAN address for debug builds.
-- Enter the API URL and the `ENROLLMENT_CODE` from `api/.env` under Settings → Demo connection. Read the code locally; do not paste it into chat or commit it.
+- Enter the API URL and the `ENROLLMENT_CODE` from `api/.env` under Settings → Service connection. Read the code locally; do not paste it into chat or commit it.
 - End a journey before changing its API connection or mode.
 - Location access is required to run the location foreground service. Rehearsal uses simulated positions. Notifications make background check-ins visible. Android force-stop stops local monitoring until you reopen the app; the server can still expire an already registered live deadline.
 - Device SMS is optional, needs an SMS-capable SIM and permission, and reports separate request/sent/delivered states. The emulator cannot verify actual carrier delivery.

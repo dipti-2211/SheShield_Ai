@@ -3,13 +3,12 @@ package com.sheshield.app.ui.components
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.sheshield.app.R
 import com.sheshield.app.data.model.*
 
 object RouteEvidenceDialog {
     fun show(c:Context,route:RouteOption){
-        val body=Ui.col(c,20)
+        val body=Ui.col(c,22)
         if(route.isDemoData)body.addView(Ui.badge(c,"FICTIONAL EVIDENCE · RECORDED DEMO"))
         route.decision?.let{decision->
             body.addView(Ui.text(c,decision.summary,17,true))
@@ -28,13 +27,13 @@ object RouteEvidenceDialog {
             body.addView(Ui.text(c,"${p.coveragePercent}% reporting coverage · ${p.longestUnknownMeters} m longest gap",14))
         }
         if(evaluated.isNotBlank())body.addView(Ui.text(c,"Evidence snapshot: ${evaluated.take(16).replace('T',' ')} UTC",13,tint=R.color.on_surface_secondary))
-        route.environment?.let{e->body.addView(Ui.button(c,"Lighting, walkways & nearby places",true){WalkingDetails.show(c,e)})}
+        route.environment?.let{e->body.addView(Ui.card(c,Ui.rowItem(c,"Walking conditions","Lighting, walkways & nearby places",R.drawable.ic_walk){WalkingDetails.show(c,e)}))}
         if(reports.isNotEmpty()){
             body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Source reports",20,true))
             reports.take(30).forEach{report(c,body,it,false)}
         }
         if(context.isNotEmpty()){
-            body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Wider-area and historical reports",20,true))
+            body.addView(Ui.space(c,16));body.addView(Ui.section(c,"Area reports & history"))
             body.addView(Ui.text(c,"These sources do not locate an incident on your lane. Historical reports keep their original dates.",14))
             context.take(30).forEach{report(c,body,it,true)}
         }else if(reports.isEmpty())body.addView(Ui.text(c,"No independently located report has been matched to this walking street.",14))
@@ -65,10 +64,10 @@ object RouteEvidenceDialog {
             p.limitations?.let{body.addView(Ui.space(c,12));body.addView(Ui.text(c,it,14))}
         }
         body.addView(Ui.space(c,12));body.addView(Ui.text(c,"Small route pieces do not establish equally precise incident locations. Missing reports never establish safety.",13,tint=R.color.on_surface_secondary))
-        MaterialAlertDialogBuilder(c).setTitle("Why this route?").setView(Ui.scroll(c,body)).setPositiveButton("Done",null).show()
+        Ui.sheet(c,"Route insights",body)
     }
-    private fun report(c:Context,body:android.widget.LinearLayout,e:Evidence,context:Boolean){
-        body.addView(Ui.space(c,14))
+    private fun report(c:Context,container:android.widget.LinearLayout,e:Evidence,context:Boolean){
+        val body=Ui.col(c,16)
         val category=e.category.replace('_',' ').replaceFirstChar{it.uppercase()}
         body.addView(Ui.text(c,(if(e.historical)"Historical · " else "")+category,16,true))
         val date=e.occurred?.label?.takeIf{it.isNotBlank()}?:e.occurred?.start?.take(10)?:"${e.daysOld} days ago"
@@ -81,6 +80,7 @@ object RouteEvidenceDialog {
         val references=e.references.orEmpty()
         if(references.isEmpty())e.sourceUrl?.let{link(c,body,it,"Open source report")}
         else references.forEach{link(c,body,it.url,"Open ${it.source}")}
+        container.addView(Ui.card(c,body))
     }
     private fun link(c:Context,body:android.widget.LinearLayout,url:String,label:String){
         val uri=Uri.parse(url);if(uri.scheme!="https"||uri.host.isNullOrBlank())return
