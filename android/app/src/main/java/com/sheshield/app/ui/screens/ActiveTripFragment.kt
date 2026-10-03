@@ -97,7 +97,7 @@ class ActiveTripFragment:ScreenFragment(){
         maneuver.visibility=if(checking)View.GONE else View.VISIBLE
         evidenceStatus.visibility=if(checking)View.GONE else View.VISIBLE
         normal.visibility=if(t.state==TripState.ACTIVE)View.VISIBLE else View.GONE;check.visibility=if(t.state==TripState.CHECK_IN_PENDING)View.VISIBLE else View.GONE;sosPanel.visibility=if(t.state==TripState.SOS_ACTIVE)View.VISIBLE else View.GONE
-        recalc.text=if(repo.prefs.getInt("off_route_fixes",0)>=3)"Off route · find another way" else "Find another way"
+        recalc.text=if(rerouting)"Finding routes…" else if(repo.prefs.getInt("off_route_fixes",0)>=3)"Off route · find another way" else "Find another way"
         recalc.isEnabled=!rerouting
         if(t.state==TripState.CHECK_IN_PENDING){
             val personal=t.checkInId.startsWith("watch-")
@@ -112,8 +112,9 @@ class ActiveTripFragment:ScreenFragment(){
             }+if(registered&&seen>0)"\nSomeone with your link acknowledged at ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(seen))}." else if(!t.isRehearsal)"\nNo companion has acknowledged this check-in." else ""
             val seconds=((t.checkInDeadlineMs-System.currentTimeMillis())/1000).coerceAtLeast(0);countdown.text="${seconds/60}:${"%02d".format(seconds%60)}"}
     }
-    private fun requestAlternative(avoidAreaId:String?=null,viaPlaceId:String?=null){val t=current?:return;if(rerouting)return
-        runAction{rerouting=true;try{showAlternatives(repo.reroute(t,avoidAreaId=avoidAreaId,viaPlaceId=viaPlaceId))}finally{rerouting=false}}
+    private fun requestAlternative(avoidAreaId:String?=null,viaPlaceId:String?=null,avoidAhead:Int?=null){val t=current?:return;if(rerouting)return
+        rerouting=true;recalc.text="Finding routes…";recalc.isEnabled=false
+        runAction{try{showAlternatives(repo.reroute(t,avoidAhead=avoidAhead,avoidAreaId=avoidAreaId,viaPlaceId=viaPlaceId))}finally{rerouting=false;if(isAdded&&view!=null)current?.let{render(it)}}}
     }
     private fun nearbyPlaces(){val t=current?:return;val c=requireContext()
         runAction{
@@ -130,11 +131,7 @@ class ActiveTripFragment:ScreenFragment(){
         if(trip.isRehearsal){Ui.error(c,"Live journeys can find alternatives from your GPS position. Practice uses a simulated position.");return}
         Ui.dialog(c).setTitle("Find another way")
             .setItems(arrayOf("Other walking options","Avoid the stretch 100 m ahead","Avoid the stretch 250 m ahead")){_,index->
-                runAction{
-                    rerouting=true;recalc.isEnabled=false;status.text="Getting fresh GPS and walking alternatives…"
-                    try{val proposal=repo.reroute(trip,when(index){1->100;2->250;else->null});showAlternatives(proposal)}
-                    finally{rerouting=false;if(isAdded)recalc.isEnabled=true}
-                }
+                requestAlternative(avoidAhead=when(index){1->100;2->250;else->null})
             }.setNegativeButton("Cancel",null).show()
     }
     private fun showAlternatives(proposal:RerouteProposal){

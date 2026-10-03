@@ -1,9 +1,27 @@
 import {validPoint,haversine} from './risk.js';
 export class ApiError extends Error {constructor(code,message,status=400,retryable=false){super(message);Object.assign(this,{code,status,retryable});}}
-export async function fetchJson(url,options={},timeout=15000) {
-  let r;for(let attempt=0;attempt<2;attempt++){try{r=await fetch(url,{...options,signal:AbortSignal.timeout(timeout)});break;}catch(e){if(attempt===1||e.name==='TimeoutError')throw new ApiError('PROVIDER_UNAVAILABLE','The external service did not respond. Try again.',503,true);await new Promise(resolve=>setTimeout(resolve,250));}}
-  if(!r.ok)throw new ApiError(r.status===429?'RATE_LIMITED':'PROVIDER_ERROR',`Provider returned HTTP ${r.status}.`,503,true);
-  try{return await r.json();}catch{throw new ApiError('INVALID_PROVIDER_RESPONSE','The provider returned an invalid response.',502,true);}
+export async function fetchJson(url,options={},timeout=15000,policy={}) {
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const r=await fetch(url,{...options,signal:AbortSignal.timeout(timeout)});
+      if(!r.ok){
+        // Routing calculations have no delivery side effects. Retry one transient gateway failure,
+        // but do not retry bad credentials, invalid requests or provider rate limits.
+        if(attempt===0&&policy.retryTransientStatuses&&[502,503,504].includes(r.status)){
+          await r.body?.cancel();await new Promise(resolve=>setTimeout(resolve,250));continue;
+        }
+        throw new ApiError(r.status===429?'RATE_LIMITED':'PROVIDER_ERROR',`Provider returned HTTP ${r.status}.`,503,true);
+      }
+      return await r.json(); // The timeout also covers reading the response body.
+    }catch(e){
+      if(e instanceof ApiError)throw e;
+      if(e instanceof SyntaxError)throw new ApiError('INVALID_PROVIDER_RESPONSE','The provider returned an invalid response.',502,true);
+      if(attempt===0&&(e.name!=='TimeoutError'||policy.retryTimeouts)){
+        await new Promise(resolve=>setTimeout(resolve,250));continue;
+      }
+      throw new ApiError('PROVIDER_UNAVAILABLE',policy.retryTimeouts?'The walking route service did not respond after retrying. Try again shortly.':'The external service did not respond. Try again.',503,true);
+    }
+  }
 }
 export function parseOrs(body,origin,destination) {
   if(!Array.isArray(body.features))throw new ApiError('INVALID_GEOMETRY','Routing returned no GeoJSON routes.',502);
@@ -22,7 +40,7 @@ export async function routeLive(origin,destination,key,options={},request=fetchJ
   const body={coordinates:options.via?[origin,options.via,destination]:[origin,destination],instructions:true};
   if(!options.via)body.alternative_routes={target_count:3,share_factor:.8,weight_factor:1.6};
   if(options.avoid_polygons)body.options={avoid_polygons:options.avoid_polygons};
-  const response=await request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const response=await request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(body)},15000,{retryTimeouts:true,retryTransientStatuses:true});
   const routes=parseOrs(response,origin,destination);if(!routes.length)throw new ApiError('NO_ROUTES','No walking route found. Choose another destination.',422);
   return routes;
 }

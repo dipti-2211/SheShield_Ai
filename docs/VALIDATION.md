@@ -168,3 +168,10 @@ Screenshots are under `artifacts/`. Simulated replay and delivery results valida
 ## UI redesign verification
 
 See [design notes](DESIGN.md). Android build, 14 JVM tests, and lint passed with zero lint errors (120 existing/current warnings). The device test `DesignPresentationTest` passed message, choice, custom-input and bottom-sheet inflation in light and dark appearances. Browser companion checks passed. Manual emulator checks covered dark route comparison, source sheets, practice SAFE acknowledgement and simulated SOS updates. These checks do not establish physical-device, TalkBack or enlarged-text coverage.
+
+
+## Routing service recovery
+
+Walking calculations now retry one timeout or HTTP 502/503/504 response, with a fresh 15-second abort signal for each attempt. The phone allows 40 seconds for route endpoints; other commands retain their normal timeout. Authentication failures, invalid requests and rate limits are not automatically retried. A provider failure retains the selected route and pending check-in. The GPS timeout also produces a visible error while leaving screen cancellation intact.
+
+All 100 backend tests and 18 Android JVM tests passed; the debug APK and lint checks completed. Tests cover timeout during headers and body reading, recovery on the second attempt, persistent failure, gateway errors, rate limits, malformed JSON and GPS cancellation. Provider availability remains an external dependency.
