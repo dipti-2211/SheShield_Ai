@@ -175,3 +175,24 @@ See [design notes](DESIGN.md). Android build, 14 JVM tests, and lint passed with
 Walking calculations now retry one timeout or HTTP 502/503/504 response, with a fresh 15-second abort signal for each attempt. The phone allows 40 seconds for route endpoints; other commands retain their normal timeout. Authentication failures, invalid requests and rate limits are not automatically retried. A provider failure retains the selected route and pending check-in. The GPS timeout also produces a visible error while leaving screen cancellation intact.
 
 All 100 backend tests and 18 Android JVM tests passed; the debug APK and lint checks completed. Tests cover timeout during headers and body reading, recovery on the second attempt, persistent failure, gateway errors, rate limits, malformed JSON and GPS cancellation. Provider availability remains an external dependency.
+
+## Cloud delivery, navigation and Kolkata expansion — 3 October 2026
+
+The updated backend uses the published n8n **Cloud** worker for voice and SMS, including selected-recipient companion messages. An authorized test to the owner's verified number ending 1265 confirmed:
+
+- SOS SMS: Twilio `delivered`.
+- SOS voice: signed press-1 callback recorded `ACKNOWLEDGED`; the exact provider call subsequently completed in 28 seconds.
+- Selected companion-link SMS: Twilio `delivered`.
+- The test alert was canceled and the test journey was ended/deleted, closing its link.
+
+[Redacted provider results](../artifacts/cloud-delivery-check.json) contain no credentials, full recipient numbers or private share URLs. An initial provider read happened while the acknowledged call was still in progress; the final read identifies the exact saved attempt, avoiding unrelated account calls.
+
+After the user completed trial verification, [recipient preflight](../artifacts/circle-readiness.json) confirmed three verified recipients configured for voice and SMS. That is configuration verification, not proof that a carrier delivered to all three. The live delivery test above was sent only to the owner. Calls are sequential until acknowledgement; SMS is queued once for every eligible Circle contact. Circle changes sync into the active journey for future alerts; an existing SOS retains its recipients.
+
+New automated checks cover companion recipient selection, replay/double-tap prevention, signed SMS status, privacy on revocation/end, a pending watch remaining unchanged, active-Circle changes, disabled persisted calling, verified-only trial recipient refresh, paid-account allowlist retention, relevant walking context and bounded 2 km area expansion. Navigation checks cover route heading, reverse movement, duplicated geometry, stale/uncertain GPS, arrival, movement uncertainty and GPS jumps.
+
+The [Kolkata expansion](../evidence/kolkata/README.md) is installed as audited immutable evidence/map snapshots. Ten crime references remain area context, with zero independently validated street incidents and zero complete reporting coverage. The city facility extract includes police and hospitals; road-condition data remain limited to Salt Lake. Defaults do not turn these gaps into a safety score.
+
+Final checks for this update: all **109 backend tests**, **22 Android JVM tests**, debug APK build and lint passed. The light/dark dialog/sheet instrumentation test passed on the existing emulator without clearing app data. Full logs: [backend](../artifacts/sos-navigation-api-tests.txt), [Android](../artifacts/sos-navigation-android-checks.txt). The updated debug APK is [SheShield-debug.apk](../artifacts/SheShield-debug.apk). Physical-phone walking and delivery to the other recipients remain separate checks.
+
+The native `NavigationMapTest` also passed on the emulator: a synthetic accurate fix followed the selected route with a 90° bearing, zoom 16.6 and 30° tilt. It created no journey or alert. This verifies native camera behavior; it does not substitute for a physical walking trace.

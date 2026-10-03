@@ -1,13 +1,14 @@
 import {validPoint,haversine} from './risk.js';
 export class ApiError extends Error {constructor(code,message,status=400,retryable=false){super(message);Object.assign(this,{code,status,retryable});}}
 export async function fetchJson(url,options={},timeout=15000,policy={}) {
-  for(let attempt=0;attempt<2;attempt++){
+  const attempts=policy.singleAttempt?1:2;
+  for(let attempt=0;attempt<attempts;attempt++){
     try{
       const r=await fetch(url,{...options,signal:AbortSignal.timeout(timeout)});
       if(!r.ok){
         // Routing calculations have no delivery side effects. Retry one transient gateway failure,
         // but do not retry bad credentials, invalid requests or provider rate limits.
-        if(attempt===0&&policy.retryTransientStatuses&&[502,503,504].includes(r.status)){
+        if(attempt+1<attempts&&policy.retryTransientStatuses&&[502,503,504].includes(r.status)){
           await r.body?.cancel();await new Promise(resolve=>setTimeout(resolve,250));continue;
         }
         throw new ApiError(r.status===429?'RATE_LIMITED':'PROVIDER_ERROR',`Provider returned HTTP ${r.status}.`,503,true);
@@ -16,12 +17,19 @@ export async function fetchJson(url,options={},timeout=15000,policy={}) {
     }catch(e){
       if(e instanceof ApiError)throw e;
       if(e instanceof SyntaxError)throw new ApiError('INVALID_PROVIDER_RESPONSE','The provider returned an invalid response.',502,true);
-      if(attempt===0&&(e.name!=='TimeoutError'||policy.retryTimeouts)){
+      if(attempt+1<attempts&&(e.name!=='TimeoutError'||policy.retryTimeouts)){
         await new Promise(resolve=>setTimeout(resolve,250));continue;
       }
       throw new ApiError('PROVIDER_UNAVAILABLE',policy.retryTimeouts?'The walking route service did not respond after retrying. Try again shortly.':'The external service did not respond. Try again.',503,true);
     }
   }
+}
+let nextFallbackStart=0;
+async function fallbackSlot(){
+  const at=Date.now(),wait=Math.max(0,nextFallbackStart-at);
+  if(wait>1500)throw new ApiError('RATE_LIMITED','Place search is busy. Wait a moment and search again.',429,true);
+  nextFallbackStart=Math.max(at,nextFallbackStart)+1100;
+  if(wait)await new Promise(resolve=>setTimeout(resolve,wait));
 }
 export function parseOrs(body,origin,destination) {
   if(!Array.isArray(body.features))throw new ApiError('INVALID_GEOMETRY','Routing returned no GeoJSON routes.',502);
@@ -40,7 +48,19 @@ export async function routeLive(origin,destination,key,options={},request=fetchJ
   const body={coordinates:options.via?[origin,options.via,destination]:[origin,destination],instructions:true};
   if(!options.via)body.alternative_routes={target_count:3,share_factor:.8,weight_factor:1.6};
   if(options.avoid_polygons)body.options={avoid_polygons:options.avoid_polygons};
-  const response=await request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(body)},15000,{retryTimeouts:true,retryTransientStatuses:true});
+  const calculate=payload=>request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(payload)},12000,{singleAttempt:true});
+  let response;
+  try{response=await calculate(body);}
+  catch(e){
+    // Alternative-route calculation is substantially more expensive. Recover with a
+    // single real walking route, keeping the exact endpoints, via point and avoidances.
+    // Quota, credential and invalid-input errors cannot be fixed by another request.
+    if(e.code!=='PROVIDER_UNAVAILABLE'&&!/^Provider returned HTTP (502|503|504)\./.test(e.message))throw e;
+    const simpler={...body};delete simpler.alternative_routes;
+    console.warn(JSON.stringify({event:'walking_route_recovery',code:e.code,single_route:!options.via}));
+    try{response=await calculate(simpler);}
+    catch(recovery){if(recovery.code==='PROVIDER_UNAVAILABLE')throw new ApiError('PROVIDER_UNAVAILABLE','The walking route service did not respond after retrying. Try again shortly.',503,true);throw recovery;}
+  }
   const routes=parseOrs(response,origin,destination);if(!routes.length)throw new ApiError('NO_ROUTES','No walking route found. Choose another destination.',422);
   return routes;
 }
@@ -49,13 +69,22 @@ export async function searchPlaces(q,key,request=fetchJson) {
   // Greater Kolkata, including Howrah and the airport. A focus point alone is not a filter.
   const within=places=>places.filter(p=>p.label&&Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)&&p.latitude>=22.35&&p.latitude<=22.80&&p.longitude>=88.15&&p.longitude<=88.60);
   const terms=q.toLowerCase().split(/[^a-z0-9]+/).filter(t=>t&&!['kolkata','calcutta','india','west','bengal','wb'].includes(t));
-  if(key){
-    const body=await request(`https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(q)}&boundary.country=IND&boundary.rect.min_lon=88.15&boundary.rect.min_lat=22.35&boundary.rect.max_lon=88.60&boundary.rect.max_lat=22.80&focus.point.lat=22.56&focus.point.lon=88.35&size=6`,{headers:{Authorization:key}});
+  if(key)try{
+    // Try the independent fallback on primary failure as well as missing matches.
+    // One bounded attempt per provider keeps the total below Android's 25-second timeout.
+    const body=await request(`https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(q)}&boundary.country=IND&boundary.rect.min_lon=88.15&boundary.rect.min_lat=22.35&boundary.rect.max_lon=88.60&boundary.rect.max_lat=22.80&focus.point.lat=22.56&focus.point.lon=88.35&size=6`,{headers:{Authorization:key}},7000,{singleAttempt:true});
     const places=within((body.features||[]).map(f=>({id:f.properties?.id,label:f.properties?.label,latitude:f.geometry?.coordinates?.[1],longitude:f.geometry?.coordinates?.[0]})));
     const matches=places.filter(p=>terms.every(t=>p.label.toLowerCase().includes(t)));
     if(matches.length)return matches;
+  }catch{/* A provider failure must not prevent the other provider from searching. */}
+  let body;
+  try{
+    if(request===fetchJson)await fallbackSlot();
+    body=await request(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&viewbox=88.15,22.80,88.60,22.35&bounded=1&limit=6&q=${encodeURIComponent(q)}`,{headers:{'User-Agent':'SheShield/2.0 (Kolkata journey companion)'}},8000,{singleAttempt:true});
+  }catch(e){
+    if(e.code==='RATE_LIMITED')throw e;
+    throw new ApiError('SEARCH_UNAVAILABLE','Place search is temporarily unavailable. Try again shortly or choose the destination on the map.',503,true);
   }
-  const body=await request(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&viewbox=88.15,22.80,88.60,22.35&bounded=1&limit=6&q=${encodeURIComponent(q)}`,{headers:{'User-Agent':'SheShield/2.0 (Kolkata journey companion)'}});
   if(!Array.isArray(body))throw new ApiError('INVALID_PROVIDER_RESPONSE','Place search returned an invalid response.',502,true);
   return within(body.map(p=>({id:String(p.place_id),label:p.display_name,latitude:Number(p.lat),longitude:Number(p.lon)})));
 }

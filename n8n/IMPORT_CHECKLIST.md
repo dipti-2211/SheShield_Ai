@@ -62,3 +62,9 @@ Twilio Auth Token must also be present locally for callback signature validation
 Workflow execution payload saving is disabled to avoid retaining contact/location data in routine execution history. View provider call logs and API delivery states when troubleshooting. Never test by POSTing arbitrary attempt IDs or bypassing the API claim step.
 
 The historical source workflow contained exposed credentials. Rotate any credentials that were shared with that file. New documentation and the v2 workflow contain no secret values.
+
+## Recipient refresh and companion SMS
+
+Set `TRIAL_SYNC_VERIFIED_RECIPIENTS=true` on the API to refresh verified caller IDs using the saved Account SID/Auth Token. This uses read-only Twilio requests and needs no additional API key. Only an active Trial account's verified recipients can extend `TEST_RECIPIENT_ALLOWLIST`; paid accounts retain the explicit allowlist. Circle → Check cloud calls & SMS refreshes immediately. The API also refreshes in the background without delaying check-in deadlines.
+
+The current Cloud v2 workflow already accepts generic claimed SMS work. Selected-recipient companion jobs use that same SMS branch, sender, Twilio credential and signed callback URL. No local n8n server or new workflow import is required. Delivery statuses are shown separately from acknowledgement; unknown requests are not blindly repeated. Changes to Circle sync into active journeys, while an already-created alert keeps its original recipient set.

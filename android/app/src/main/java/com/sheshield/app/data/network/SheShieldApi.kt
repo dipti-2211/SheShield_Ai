@@ -19,6 +19,9 @@ interface SheShieldApi {
     @GET("v1/sos/{id}") suspend fun incident(@Path("id") id: String): SosIncident
     @POST("v1/trips/{id}/reroute") suspend fun reroute(@Path("id") id: String,@Body body: JsonObject): RerouteProposal
     @POST("v1/trips/{id}/share") suspend fun share(@Path("id") id: String, @Body body: JsonObject = JsonObject()): ShareResponse
+    @POST("v1/delivery/check") suspend fun deliveryCheck(@Body body:JsonObject):DeliveryCheck
+    @POST("v1/trips/{id}/companion-sms") suspend fun companionSms(@Path("id") id:String,@Header("Idempotency-Key") key:String,@Body body:JsonObject):CompanionMessage
+    @GET("v1/companion-sms/{id}") suspend fun companionMessage(@Path("id") id:String):CompanionMessage
     @DELETE("v1/trips/{id}/share") suspend fun revokeShares(@Path("id") id: String): JsonObject
     @DELETE("v1/trips/{id}") suspend fun deleteTrip(@Path("id") id: String): JsonObject
 }

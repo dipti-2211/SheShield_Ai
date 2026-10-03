@@ -52,15 +52,17 @@ class SosFragment:ScreenFragment(){
         }
     }
     private fun render(i:SosIncident){
-        val c=requireContext();stateText.text=when(i.status){"ACKNOWLEDGED"->"Your contact acknowledged";"CANCELLED"->"Alert cancelled";"PENDING"->"Waiting for connection";"EXPIRED"->"Remote alert expired";"FAILED"->"Remote request failed";"UNAVAILABLE"->"Calls unavailable";"NO_CONTACTS"->"Your circle is empty";else->"SOS is active"}
+        val c=requireContext();stateText.text=when(i.status){"ACKNOWLEDGED"->"Your contact acknowledged";"CANCELLED"->"Alert cancelled";"PENDING"->"Waiting for connection";"EXPIRED"->"Remote alert expired";"FAILED"->"Remote request failed";"UNAVAILABLE"->if(i.smsAttempts.orEmpty().any{it.status !in listOf("UNAVAILABLE","FAILED","CANCELLED","UNDELIVERED")})"SMS alerts requested" else "Cloud alerts unavailable";"EXHAUSTED"->"No call acknowledged yet";"NO_CONTACTS"->"Your circle is empty";else->"SOS is active"}
         stateText.setTextColor(Ui.color(c,when(i.status){"ACKNOWLEDGED"->R.color.risk_low;"CANCELLED"->R.color.on_surface;"PENDING"->R.color.risk_medium;else->R.color.risk_high}))
         val key=repo.gson.toJson(i)+SmsHelper.statuses(c,i.id,i.contacts.map{it.phone}).joinToString();if(key==lastRendered)return;lastRendered=key;details.removeAllViews()
         if(i.mode=="REHEARSAL")details.addView(Ui.badge(c,"REHEARSAL · NO REAL CALLS OR TEXTS"))
         val channels=Ui.col(c,16);channels.addView(Ui.text(c,"Contact updates",18,true))
         if(i.mode=="REHEARSAL")channels.addView(Ui.text(c,"Calls below are simulated. No cloud SMS is sent.",14))
         else {
-            i.attempts.forEach{channels.addView(Ui.text(c,"Call · ${it.contact.name}: ${it.status.lowercase().replace('_',' ')}",14))}
-            i.smsAttempts.orEmpty().forEach{channels.addView(Ui.text(c,"SMS · ${it.contact.name}: ${it.status.lowercase().replace('_',' ')}",14))}
+            i.attempts.forEach{channels.addView(Ui.text(c,"Call · ${it.contact.name}: ${it.status.lowercase().replace('_',' ')}",14));it.unavailableReason?.let{reason->channels.addView(Ui.text(c,reason,13,tint=R.color.risk_medium))}}
+            i.smsAttempts.orEmpty().forEach{channels.addView(Ui.text(c,"SMS · ${it.contact.name}: ${it.status.lowercase().replace('_',' ')}",14));it.unavailableReason?.let{reason->channels.addView(Ui.text(c,reason,13,tint=R.color.risk_medium))}}
+            val attempted=i.attempts.map{it.contact.phone}.toSet()
+            if(i.status!="ACKNOWLEDGED"&&!i.cancelled)i.contacts.filter{it.phone !in attempted}.forEach{channels.addView(Ui.text(c,"Call · ${it.name}: waiting their turn",14))}
             if(i.attempts.isEmpty()&&i.smsAttempts.orEmpty().isEmpty())channels.addView(Ui.text(c,"Waiting for server confirmation. Cloud delivery is unconfirmed.",14))
             channels.addView(Ui.text(c,"Delivered SMS is not an acknowledgement. A contact can press 1 during a cloud call to acknowledge.",13,tint=R.color.on_surface_secondary))
         }

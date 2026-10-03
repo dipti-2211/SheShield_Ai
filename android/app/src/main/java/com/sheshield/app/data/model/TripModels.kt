@@ -76,8 +76,10 @@ data class RouteOption(@SerializedName("route_id") val routeId: String, val labe
     @SerializedName("destination_snap_meters") val destinationSnapMeters: Int = 0,
     val passport: EvidencePassport? = null,
     @SerializedName("context_evidence") val contextEvidence: List<Evidence>? = null,
+    @SerializedName("insight_context") val insightContext: List<Evidence>? = null,
     val observations: List<StreetObservation>? = null,
     val decision: RouteDecision? = null, val environment:WalkingEnvironment? = null,
+    @SerializedName("context_selection") val contextSelection:ContextSelection? = null,
     @SerializedName("via_place") val viaPlace:ViaPlace? = null) {
     val points get() = geometry.map { LatLng(it[1], it[0]) }
 }
@@ -103,6 +105,7 @@ data class MappedPlace(val id:String,val name:String,val point:List<Double>,val 
     @SerializedName("source_url") val sourceUrl:String,@SerializedName("opening_hours") val openingHours:String?,
     @SerializedName("hours_status") val hoursStatus:String,@SerializedName("entrance_status") val entranceStatus:String,
     @SerializedName("straight_distance_meters") val straightDistanceMeters:Int,
+    @SerializedName("distance_basis") val distanceBasis:String?=null,
     @SerializedName("walking_connection_meters") val walkingConnectionMeters:Int=0,
     @SerializedName("estimated_arrival_at") val estimatedArrivalAt:String?,
     @SerializedName("connection_status") val connectionStatus:String?)
@@ -113,6 +116,7 @@ data class WalkingEnvironment(val version:String?,@SerializedName("collected_at"
     val stale:Boolean,val summary:WalkingSummary,val stretches:List<WalkingStretch>?,
     @SerializedName("report_areas") val reportAreas:List<ReportArea>?,val facilities:List<MappedPlace>?,
     @SerializedName("nearby_places") val nearbyPlaces:List<MappedPlace>?,val surroundings:List<Surrounding>?,
+    @SerializedName("help_places") val helpPlaces:List<MappedPlace>? = null,
     val activity:String?,val limitations:String?,val preference:String?,
     @SerializedName("preference_availability") val preferenceAvailability:PreferenceAvailability?)
 data class ViaPlace(val id:String,val name:String,val point:List<Double>,@SerializedName("source_url") val sourceUrl:String)
@@ -163,7 +167,13 @@ data class OutboxEvent(@PrimaryKey val id: String, val tripId: String, val path:
 data class SavedIncident(@PrimaryKey val id: String, val json: String)
 data class TimelineEvent(val id: String, val status: String, val message: String, val contact: String? = null,
     @SerializedName("at_ms") val atMs: Long)
-data class DeliveryAttempt(val id: String, val contact: TrustedContact, val status: String)
+data class DeliveryAttempt(val id: String, val contact: TrustedContact, val status: String,
+    @SerializedName("unavailable_reason") val unavailableReason:String? = null)
+data class DeliveryContact(val contact:TrustedContact,@SerializedName("voice_configured") val voiceConfigured:Boolean,
+    @SerializedName("sms_configured") val smsConfigured:Boolean,@SerializedName("voice_reason") val voiceReason:String?,@SerializedName("sms_reason") val smsReason:String?)
+data class DeliveryCheck(val contacts:List<DeliveryContact>,val notice:String)
+data class CompanionMessage(val id:String,val contact:TrustedContact,val status:String)
+data class ContextSelection(val basis:String,@SerializedName("radius_meters") val radiusMeters:Int?,val notice:String)
 data class SosIncident(val id: String, @SerializedName("trip_id") val tripId: String? = null,
     val mode: String, val status: String, val cancelled: Boolean = false, val location: LocationFix? = null,
     val contacts: List<TrustedContact> = emptyList(), val timeline: List<TimelineEvent> = emptyList(),

@@ -123,7 +123,9 @@ export function enrichWalkingRoute(route,data,incidents,departureAt=Date.now()) 
   const prev=stretches.at(-1);if(prev&&['lighting','walkway','restricted','phase','source_url'].every(k=>prev[k]===item[k])){prev.to_meters=item.to_meters;prev.end_index=item.end_index;}else stretches.push(item);
  }
  Object.keys(summary).forEach(k=>summary[k]=Math.round(summary[k]));summary.longest_facility_gap_meters=Math.round(longest);
- const environment={version:data.version,collected_at:data.collected_at,evaluated_at:new Date(departureAt).toISOString(),valid_until:new Date(validUntil).toISOString(),stale,summary,stretches,report_areas:areaReports,surroundings,facilities:[...facilities.values()].slice(0,20),nearby_places:nearbyPlaces(data,route.geometry[0],departureAt).slice(0,3),activity:'UNKNOWN',limitations:data.limitations};
+ const helpPlaces=data.places.filter(p=>['police','hospital'].includes(p.tags.amenity)).map(p=>({p,d:Math.min(...route.geometry.slice(1).map((v,i)=>segmentDistanceKm(p.point,route.geometry[i],v)*1000))})).filter(v=>v.d<=800).sort((a,b)=>a.d-b.d);
+ const selectedHelp=['police','hospital'].flatMap(category=>helpPlaces.filter(v=>v.p.tags.amenity===category).slice(0,4)).map(({p,d})=>({...publicPlace(p,departureAt,d),distance_basis:'ROUTE',estimated_arrival_at:null}));
+ const environment={version:data.version,collected_at:data.collected_at,evaluated_at:new Date(departureAt).toISOString(),valid_until:new Date(validUntil).toISOString(),stale,summary,stretches,report_areas:areaReports,surroundings,facilities:[...facilities.values()].slice(0,20),nearby_places:nearbyPlaces(data,route.geometry[0],departureAt).slice(0,3),help_places:selectedHelp,activity:'UNKNOWN',limitations:data.limitations};
  return {...route,environment};
 }
 export function rankWalkingRoutes(routes,preference='FASTEST',extraMinutes=5) {

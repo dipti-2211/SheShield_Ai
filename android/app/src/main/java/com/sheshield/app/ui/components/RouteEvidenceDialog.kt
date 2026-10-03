@@ -10,61 +10,54 @@ object RouteEvidenceDialog {
     fun show(c:Context,route:RouteOption){
         val body=Ui.col(c,22)
         if(route.isDemoData)body.addView(Ui.badge(c,"FICTIONAL EVIDENCE · RECORDED DEMO"))
-        route.decision?.let{decision->
-            body.addView(Ui.text(c,decision.summary,17,true))
-            decision.reasons.orEmpty().filter{it.kind=="TIME"}.forEach{body.addView(Ui.space(c,8));body.addView(Ui.text(c,it.text,14))}
-        }
-        val context=route.contextEvidence.orEmpty()
-        val reports=route.evidence.orEmpty()
-        val evaluated=route.evaluatedAt.orEmpty()
-        body.addView(Ui.space(c,12))
-        if(route.isDemoData)body.addView(Ui.text(c,route.riskSummary,15))
-        else {
-            val type=if(route.passport?.datasetVersion!=null)"street matches" else "nearby reports"
-            body.addView(Ui.text(c,"${route.incidentCount} $type · ${context.size} wider-area references",15,true))
-        }
-        route.passport?.let{p->
-            body.addView(Ui.text(c,"${p.coveragePercent}% reporting coverage · ${p.longestUnknownMeters} m longest gap",14))
-        }
-        if(evaluated.isNotBlank())body.addView(Ui.text(c,"Evidence snapshot: ${evaluated.take(16).replace('T',' ')} UTC",13,tint=R.color.on_surface_secondary))
+        val reports=route.evidence.orEmpty().filter{!it.historical}
+        val area=route.insightContext ?: route.contextEvidence.orEmpty().filter{!it.historical&&it.setting=="public_space"&&it.category!="traffic_incident"}.take(5)
+        body.addView(Ui.text(c,if(route.isDemoData)route.riskSummary else "Safety remains unknown",17,true))
+        body.addView(Ui.text(c,if(route.isDemoData)"${reports.size} fictional reports for this practice walk." else if(reports.isEmpty())"No reviewed street reports matched this route." else "${reports.size} reviewed street reports matched this route.",14))
+        route.decision?.reasons.orEmpty().filter{it.kind=="TIME"}.take(1).forEach{body.addView(Ui.text(c,it.text,14))}
         route.environment?.let{e->body.addView(Ui.card(c,Ui.rowItem(c,"Walking conditions","Lighting, walkways & nearby places",R.drawable.ic_walk){WalkingDetails.show(c,e)}))}
         if(reports.isNotEmpty()){
-            body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Source reports",20,true))
-            reports.take(30).forEach{report(c,body,it,false)}
+            body.addView(Ui.section(c,if(route.isDemoData)"Practice reports" else "Along this route"))
+            reports.take(3).forEach{reportRow(c,body,it,false)}
+            if(reports.size>3)body.addView(Ui.button(c,"More street reports",true){reportList(c,"Street reports",reports.drop(3),false)})
         }
-        if(context.isNotEmpty()){
-            body.addView(Ui.space(c,16));body.addView(Ui.section(c,"Area reports & history"))
-            body.addView(Ui.text(c,"These sources do not locate an incident on your lane. Historical reports keep their original dates.",14))
-            context.take(30).forEach{report(c,body,it,true)}
-        }else if(reports.isEmpty())body.addView(Ui.text(c,"No independently located report has been matched to this walking street.",14))
-        val observations=route.observations.orEmpty()
-        body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Street conditions",20,true))
-        if(observations.isEmpty())body.addView(Ui.text(c,"No current street-condition observations were available at evaluation.",14))
-        else {
-            if(route.segments.orEmpty().any{it.observationConflict})body.addView(Ui.text(c,"Observations disagree on a section. Its conditions remain unresolved.",14,true,R.color.risk_medium))
-            observations.forEach{o->
-                val expired=runCatching{java.time.Instant.parse(o.expiresAt).toEpochMilli()<=System.currentTimeMillis()}.getOrDefault(true)
-                body.addView(Ui.text(c,"${if(expired)"Expired · " else ""}${o.kind.replace('_',' ')} · ${o.locationLabel?:"reviewed section"}\nObserved ${o.observedAt} · expires ${o.expiresAt}\nApplies to ${o.timeOfDay.replace('_',' ')}",14))
-                link(c,body,o.sourceUrl,"Open observation")
-            }
-        }
-        route.passport?.let{p->
-            body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Along your walk",20,true))
-            p.stretches.orEmpty().forEach{stretch->
-                val message=when(stretch.kind){"REPORTS"->if(route.decision!=null&&p.datasetVersion!=null)"Report matched to this reviewed street section" else "Nearby reports; street relation uncertain";"NO_REPORTS"->"No matching records in the supplied reporting feed";else->"Reporting gap · safety unknown"}
-                body.addView(Ui.text(c,"${stretch.fromMeters}–${stretch.toMeters} m: $message",14));body.addView(Ui.space(c,6))
-            }
-            body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Collection and limits",20,true))
-            if(p.datasetVersion!=null){
-                body.addView(Ui.text(c,"Dataset ${p.datasetVersion} · updated ${p.datasetUpdatedAt?.take(10)?:"unknown"}",13,tint=R.color.on_surface_secondary))
-                p.datasetCollection?.let{body.addView(Ui.text(c,it,14))}
-                body.addView(Ui.text(c,"At evaluation, ${p.observationCoveragePercent}% had unexpired reviewed observations of both lighting and walking access.",14))
-            }
-            p.coverageWindows.orEmpty().forEach{w->body.addView(Ui.text(c,"${w.source}: ${w.from.take(10)} to ${w.to.take(10)} · updated ${w.updatedAt.take(10)}",13))}
-            p.limitations?.let{body.addView(Ui.space(c,12));body.addView(Ui.text(c,it,14))}
-        }
-        body.addView(Ui.space(c,12));body.addView(Ui.text(c,"Small route pieces do not establish equally precise incident locations. Missing reports never establish safety.",13,tint=R.color.on_surface_secondary))
+        if(area.isNotEmpty()){
+            body.addView(Ui.section(c,if(route.contextSelection?.basis=="EXPANDED_AREA")"Wider-area references" else "Area references"))
+            body.addView(Ui.text(c,route.contextSelection?.notice?:"Exact incident streets remain unconfirmed.",13,tint=R.color.on_surface_secondary))
+            area.take(3).forEach{reportRow(c,body,it,true)}
+            if(area.size>3)body.addView(Ui.button(c,"More area references",true){reportList(c,"Area references",area.drop(3),true)})
+        }else body.addView(Ui.text(c,route.contextSelection?.notice?:"No relevant recent area reports are available.",13,tint=R.color.on_surface_secondary))
+        body.addView(Ui.card(c,Ui.rowItem(c,"About the data","Sources, dates & reporting limits",R.drawable.ic_info){about(c,route)}))
+        body.addView(Ui.text(c,"Missing reports never establish safety.",13,tint=R.color.on_surface_secondary))
         Ui.sheet(c,"Route insights",body)
+    }
+    private fun reportRow(c:Context,body:android.widget.LinearLayout,e:Evidence,area:Boolean){
+        val category=e.category.replace('_',' ').replaceFirstChar{it.uppercase()}
+        val date=e.occurred?.label?.takeIf{it.isNotBlank()}?:e.occurred?.start?.take(10)?:"${e.daysOld} days ago"
+        body.addView(Ui.card(c,Ui.rowItem(c,category,"${e.locationLabel?:e.source} · $date",R.drawable.ic_info){
+            val details=Ui.col(c,20);report(c,details,e,area);Ui.sheet(c,"Report details",details)
+        }))
+    }
+    private fun reportList(c:Context,title:String,reports:List<Evidence>,area:Boolean){
+        val body=Ui.col(c,20);reports.forEach{reportRow(c,body,it,area)};Ui.sheet(c,title,body)
+    }
+    private fun about(c:Context,route:RouteOption){
+        val body=Ui.col(c,20)
+        if(route.isDemoData)body.addView(Ui.badge(c,"FICTIONAL EVIDENCE · RECORDED DEMO"))
+        route.passport?.let{p->
+            body.addView(Ui.text(c,"${p.coveragePercent}% ${if(route.isDemoData)"fictional" else "complete"} reporting coverage",16,true))
+            body.addView(Ui.text(c,p.limitations?:"Reporting is incomplete. Source review does not establish occurrence or safety.",14))
+            p.datasetCollection?.let{body.addView(Ui.text(c,it,14))}
+            body.addView(Ui.text(c,"Dataset ${p.datasetVersion?:"unavailable"} · updated ${p.datasetUpdatedAt?.take(10)?:"unknown"}",13,tint=R.color.on_surface_secondary))
+        }
+        if(route.evaluatedAt.isNotBlank())body.addView(Ui.text(c,"Evaluated ${route.evaluatedAt.take(16).replace('T',' ')} UTC",13))
+        val history=route.contextEvidence.orEmpty().filter{it.historical}
+        if(history.isNotEmpty())body.addView(Ui.button(c,"Historical area references (${history.size})",true){reportList(c,"Historical references",history.take(10),true)})
+        val observations=route.observations.orEmpty()
+        if(observations.isEmpty())body.addView(Ui.text(c,"No current independently reviewed street observations were matched.",14))
+        else observations.forEach{o->body.addView(Ui.text(c,"${o.kind.replace('_',' ')} · ${o.locationLabel?:"reviewed section"}\nObserved ${o.observedAt.take(10)} · expires ${o.expiresAt} · ${o.timeOfDay}",14));link(c,body,o.sourceUrl,"Open observation")}
+        body.addView(Ui.text(c,"Area search bounds locate research, not an incident. News reports are allegations, and no complete Kolkata incident feed is available in this dataset.",14))
+        Ui.sheet(c,"About the data",body)
     }
     private fun report(c:Context,container:android.widget.LinearLayout,e:Evidence,context:Boolean){
         val body=Ui.col(c,16)

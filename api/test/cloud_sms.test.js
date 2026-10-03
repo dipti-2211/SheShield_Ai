@@ -69,3 +69,11 @@ test('a cloud job accepted without a claim becomes outcome unknown without anoth
   await app.tick();const before=requests;time+=61000;await app.tick();await app.tick();assert.equal(requests,before);assert.ok(incident.sms_attempts.every(s=>app.store.get('sms_attempt',s.id).status==='REQUEST_UNKNOWN'));assert.equal(app.store.get('attempt',incident.attempt_ids[0]).status,'REQUEST_UNKNOWN');
  }finally{await app.close();}
 });
+test('queued voice work cannot dispatch after cloud calling is disabled on restart',async()=>{
+ const jobs=[];const c=await client({LIVE_ALERTS_ENABLED:'false'},async(u,o)=>{jobs.push(o);return {ok:true};});
+ try{
+  const incident=(await c.call('POST','/v1/sos',{mode:'LIVE',contacts:[contacts[0]]})).json();
+  const attempt=c.app.store.get('attempt',incident.attempts[0].id);attempt.status='QUEUED';c.app.store.put('attempt',attempt);
+  await c.app.tick();assert.equal(jobs.length,0);assert.equal(c.app.store.get('attempt',attempt.id).status,'UNAVAILABLE');assert.equal(c.app.store.get('sos',incident.id).status,'UNAVAILABLE');
+ }finally{await c.app.close();}
+});

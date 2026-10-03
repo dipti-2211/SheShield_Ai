@@ -19,9 +19,12 @@ object WalkingDetails {
         if(avoid!=null)d.setNeutralButton("Avoid this area"){_,_->avoid(a.id)}
         d.show()
     }
-    fun hours(p:MappedPlace)=when(p.hoursStatus){"LISTED_OPEN"->"Listed hours suggest open at estimated arrival; exceptions unconfirmed";"LISTED_CLOSED"->"Listed hours suggest closed at estimated arrival";"CLOSING_SOON"->"Listed closing time is within 10 minutes of estimated arrival";else->"Hours unknown"}
+    fun hours(p:MappedPlace):String {
+        val at=if(p.estimatedArrivalAt==null)"at route evaluation" else "at estimated arrival"
+        return when(p.hoursStatus){"LISTED_OPEN"->"Listed hours suggest open $at; exceptions unconfirmed";"LISTED_CLOSED"->"Listed hours suggest closed $at";"CLOSING_SOON"->"Listed closing time is within 10 minutes $at";else->"Hours unknown"}
+    }
     fun place(c:Context,p:MappedPlace,via:((String)->Unit)?=null){
-        val d=Ui.dialog(c).setTitle(p.name).setMessage("${p.category.replace('_',' ')} · mapped facility\n${hours(p)}\n${p.openingHours?:"No opening hours supplied"}\n\n${if(p.walkingConnectionMeters>0)"${p.walkingConnectionMeters} m along a mapped connection" else "${p.straightDistanceMeters} m map distance; walking access needs checking"}\n${if(p.entranceStatus=="MAPPED_ENTRANCE")"An entrance is mapped; current access unconfirmed" else "Entrance unconfirmed"}\nAssistance is unconfirmed.")
+        val d=Ui.dialog(c).setTitle(p.name).setMessage("${p.category.replace('_',' ')} · mapped facility\n${hours(p)}\n${p.openingHours?:"No opening hours supplied"}\n\n${if(p.walkingConnectionMeters>0)"${p.walkingConnectionMeters} m along a mapped connection" else "${p.straightDistanceMeters} m map distance${if(p.distanceBasis=="ROUTE")" from the route" else ""}; walking access needs checking"}\n${if(p.entranceStatus=="MAPPED_ENTRANCE")"An entrance is mapped; current access unconfirmed" else "Entrance unconfirmed"}\nAssistance is unconfirmed.")
             .setPositiveButton("Map source"){_,_->source(c,p.sourceUrl)}.setNegativeButton("Close",null)
         if(via!=null)d.setNeutralButton("Walking option via here"){_,_->via(p.id)}
         d.show()

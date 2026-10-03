@@ -1,44 +1,41 @@
 {
-  "test": "Authorized real call and SMS through n8n Cloud",
-  "created_at_ms": 1790944777315,
-  "call_attempts": 1,
-  "sms_attempts": 1,
-  "call_status": "ACKNOWLEDGED",
-  "sms_status": "DELIVERED",
-  "acknowledgement_received": true,
-  "safety_confirmed": false,
-  "timeline": [
+  "at": "2026-10-03T05:41:47.103Z",
+  "recipient_last4": "1265",
+  "path": "App API → n8n Cloud → Twilio",
+  "sos": {
+    "overall": "ACKNOWLEDGED",
+    "voice": [
+      "ACKNOWLEDGED"
+    ],
+    "sms": [
+      "DELIVERED"
+    ]
+  },
+  "companion": {
+    "status": "DELIVERED"
+  },
+  "provider": [
     {
-      "status": "REQUESTED",
-      "elapsed_seconds": 0.0
+      "resource": "Calls",
+      "http": 200,
+      "status": "completed",
+      "error_code": null,
+      "duration": "28"
     },
     {
-      "status": "QUEUED",
-      "elapsed_seconds": 0.0
+      "resource": "Messages",
+      "http": 200,
+      "status": "delivered",
+      "error_code": null,
+      "duration": null
     },
     {
-      "status": "SMS_QUEUED",
-      "elapsed_seconds": 0.0
-    },
-    {
-      "status": "SMS_SENT",
-      "elapsed_seconds": 4.0
-    },
-    {
-      "status": "RINGING",
-      "elapsed_seconds": 5.1
-    },
-    {
-      "status": "SMS_DELIVERED",
-      "elapsed_seconds": 5.9
-    },
-    {
-      "status": "IN_PROGRESS",
-      "elapsed_seconds": 9.2
-    },
-    {
-      "status": "ACKNOWLEDGED",
-      "elapsed_seconds": 27.2
+      "resource": "Messages",
+      "http": 200,
+      "status": "delivered",
+      "error_code": null,
+      "duration": null
     }
-  ]
+  ],
+  "provider_rechecked_at": "2026-10-03T05:50:03.821Z"
 }

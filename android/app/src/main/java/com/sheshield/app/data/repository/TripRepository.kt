@@ -36,7 +36,13 @@ class TripRepository private constructor(private val context: Context) {
     private fun json(value: Any)=gson.toJsonTree(value).asJsonObject
     suspend fun active()=dao.getActiveTrip()
     fun contacts(): List<TrustedContact> = runCatching { gson.fromJson<List<TrustedContact>>(prefs.getString("trusted_contacts","[]"),object:TypeToken<List<TrustedContact>>(){}.type) }.getOrDefault(emptyList())
-    fun saveContacts(contacts: List<TrustedContact>) {prefs.edit().putString("trusted_contacts",gson.toJson(contacts)).apply()}
+    suspend fun saveContacts(contacts: List<TrustedContact>)=mutex.withLock {
+        prefs.edit().putString("trusted_contacts",gson.toJson(contacts)).apply()
+        active()?.takeIf{!it.isRehearsal}?.let{trip->
+            dao.upsert(trip.copy(trustedContacts=gson.toJson(contacts),syncStatus="PENDING"))
+            queue(OutboxEvent(UUID.randomUUID().toString(),trip.tripId,"v1/trips/${trip.tripId}/contacts",gson.toJson(mapOf("contacts" to contacts))))
+        }
+    }
     fun demo()=prefs.getBoolean("demo_mode",true)
     fun setDemo(enabled: Boolean){prefs.edit().putBoolean("demo_mode",enabled).apply()}
     suspend fun enroll(){if(prefs.getString("session_token",null)==null){val s=api.enroll(mapOf("enrollment_code" to (prefs.getString("enrollment_code","")?:"")));prefs.edit().putString("session_token",s.token).apply()}}
@@ -199,6 +205,17 @@ class TripRepository private constructor(private val context: Context) {
         active()?.let{dao.upsert(it.copy(state=TripState.ACTIVE,sosId="",checkInDeadlineMs=0,lastCheckInAtMs=System.currentTimeMillis()))}
     }
     suspend fun sync()=syncMutex.withLock {
+        // Upgrade existing journeys too: older versions kept only the Circle
+        // snapshot from journey start. Existing SOS incidents remain immutable.
+        mutex.withLock {
+            active()?.takeIf{!it.isRehearsal}?.let{trip->
+                val saved=gson.toJson(contacts())
+                if(trip.trustedContacts!=saved){
+                    dao.upsert(trip.copy(trustedContacts=saved,syncStatus="PENDING"))
+                    queue(OutboxEvent(UUID.randomUUID().toString(),trip.tripId,"v1/trips/${trip.tripId}/contacts",gson.toJson(mapOf("contacts" to contacts()))))
+                }
+            }
+        }
         while(true){val e=dao.queued().firstOrNull()?:break
             if(e.expiresAtMs>0&&System.currentTimeMillis()>e.expiresAtMs){dao.acknowledge(e.id);val message="An unsent alert expired while offline. Use the call or SMS options if help is still needed.";repoError(message);markAlertFailure(e,"EXPIRED",message);continue}
             try{enroll();val result=api.command(e.path,e.id,gson.fromJson(e.payload,JsonObject::class.java))
@@ -239,6 +256,19 @@ class TripRepository private constructor(private val context: Context) {
     suspend fun nextDemoCheckIn()=mutex.withLock{active()?.takeIf{it.isRehearsal&&it.state==TripState.ACTIVE}?.let{dao.upsert(it.copy(lastCheckInAtMs=0))}}
     suspend fun share(trip:ActiveTrip):String {check(!trip.isRehearsal){"Practice journeys stay on this phone. Live journeys can create a companion link."};enroll();return api.share(trip.tripId).url}
     suspend fun revokeShares(trip:ActiveTrip){enroll();api.revokeShares(trip.tripId)}
+    suspend fun deliveryCheck():DeliveryCheck {enroll();return api.deliveryCheck(json(mapOf("contacts" to contacts())))}
+    suspend fun sendCompanion(trip:ActiveTrip,contact:TrustedContact):CompanionMessage {
+        check(!trip.isRehearsal){"Practice does not send real messages."}
+        check(active()?.tripId==trip.tripId){"This journey has ended."}
+        check(contacts().any{it.phone==contact.phone}){"Choose someone from your Circle."}
+        val choice="${trip.tripId}:${contact.phone}"
+        val keyName="companion_key:$choice"
+        val key=prefs.getString(keyName,null)?:UUID.randomUUID().toString().also{prefs.edit().putString(keyName,it).apply()}
+        enroll();val result=api.companionSms(trip.tripId,key,json(mapOf("contact" to contact)))
+        // Retain the key when the response is lost, preventing duplicate messages on a retry.
+        prefs.edit().remove(keyName).apply();return result
+    }
+    suspend fun companionMessage(id:String):CompanionMessage {enroll();return api.companionMessage(id)}
     suspend fun reroute(trip:ActiveTrip,avoidAhead:Int?=null,avoidAreaId:String?=null,viaPlaceId:String?=null):RerouteProposal {
         check(!trip.isRehearsal){"Alternatives from your GPS position are available in live journeys. Practice uses a simulated position."}
         check(active()?.tripId==trip.tripId){"This journey has ended."}

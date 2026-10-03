@@ -213,6 +213,24 @@ export function scopeIntersectsRoute(scope,geometry) {
   return false;
 }
 
+function scopeDistance(scope,geometry){
+  if(scopeIntersectsRoute(scope,geometry))return 0;
+  const [w,s,e,n]=scope.search_bounds,box=[[w,s],[e,s],[e,n],[w,n],[w,s]];
+  return Math.min(...box.map(p=>distanceToLine(p,geometry)),...geometry.map(p=>distanceToLine(p,box)));
+}
+
+export function selectInsightContext(records,scopes,geometry,now){
+  const distances=new Map(scopes.map(s=>[s.id,scopeDistance(s,geometry)]));
+  const candidates=records.filter(r=>r.setting==='public_space'&&r.category!=='traffic_incident'&&now-utc(r.occurred.start)<=365*DAY)
+    .map(r=>({record:r,distance:Math.min(...r.location.scope_ids.map(id=>distances.get(id)??Infinity))}));
+  const local=candidates.filter(r=>r.distance===0);
+  const selected=(local.length?local:candidates.filter(r=>r.distance<=2000)).sort((a,b)=>a.distance-b.distance||utc(b.record.occurred.start)-utc(a.record.occurred.start));
+  const unique=[...new Map(selected.map(r=>[r.record.id,r.record])).values()];
+  const basis=local.length?'LOCAL_AREA':unique.length?'EXPANDED_AREA':'NONE';
+  return {records:unique.slice(0,5),selection:{basis,radius_meters:basis==='EXPANDED_AREA'?2000:null,total_relevant:unique.length,
+    notice:basis==='EXPANDED_AREA'?'Expanded to research areas within 2 km of your route. These are broader-area references; exact incident streets remain unconfirmed.':basis==='LOCAL_AREA'?'Reports refer to areas your route passes through. Exact incident street sections remain unconfirmed.':'No relevant recent pedestrian reports were found within the supplied research areas or a 2 km expansion. Missing reports never establish safety.'}};
+}
+
 export function assessStreetRoute(route,dataset,now) {
   const scopeIds=new Set(dataset.scopes.filter(s=>scopeIntersectsRoute(s,route.geometry)).map(s=>s.id));
   const relevant=r=>r.location.scope_ids.some(id=>scopeIds.has(id));
@@ -252,7 +270,9 @@ export function assessStreetRoute(route,dataset,now) {
     distance_km:0,precision_meters:r.location.uncertainty_meters||0,relation:evidence.has(r.id)?'MATCHED_STREET':'AREA_CONTEXT'});
   const coverage=total>0&&covered>=total-.01?'AVAILABLE':covered>0?'PARTIAL':'UNAVAILABLE';
   const observationList=[...observations.values()].map(o=>({id:o.id,kind:o.kind,source:o.source,source_url:o.source_url,observed_at:o.observed_at,expires_at:o.expires_at,time_of_day:o.time_of_day,location_label:o.location.label,review_count:o.review_count}));
+  const insights=selectInsightContext([...dataset.context,...dataset.incidents.filter(r=>!evidence.has(r.id))],dataset.scopes,route.geometry,now);
   return {...route,risk_level:'UNKNOWN',risk_score:0,incident_count:evidence.size,segments,evidence:[...evidence.values()].map(publicRecord),context_evidence:context.map(publicRecord),observations:observationList,
+    insight_context:insights.records.map(publicRecord),context_selection:insights.selection,
     coverage,evaluated_at:new Date(now).toISOString(),algorithm_version:'street-evidence-4.0',is_demo_data:false,route_revision:1,label:'',
     passport:{analysis_step_meters:10,corridor_meters:0,coverage_percent:total?Math.floor(covered/total*100):0,longest_unknown_meters:Math.round(longest),peak_exposure:0,
       context_report_count:context.length,precise_report_count:evidence.size,stretches,sources:dataset.sources,
