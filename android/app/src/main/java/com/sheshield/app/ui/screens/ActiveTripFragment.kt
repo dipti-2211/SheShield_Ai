@@ -88,7 +88,7 @@ class ActiveTripFragment:ScreenFragment(){
         if(route!=null){val projection=TripMath.project(LatLng(t.lastLatitude,t.lastLongitude),route);val duration=route.durationSeconds*(projection.remainingMeters/route.distanceMeters).coerceIn(0.0,1.0)
             metrics.text="${(duration/60).toInt().coerceAtLeast(1)} min  ·  ${"%.1f".format(projection.remainingMeters/1000)} km"
             val here=route.segments.firstOrNull{it.startIndex==projection.index}
-            evidenceStatus.text=when{(here?.evidenceCount?:0)>0->"Reports associated with this stretch · open route evidence for their location limits";route.contextEvidence.orEmpty().isNotEmpty()->"Wider-area reports available · this lane’s safety remains unknown";here?.level=="UNKNOWN"->"Evidence gap here · choose Walk with me if you feel uneasy";else->"Missing reports do not establish safety · grey means unknown"}
+            evidenceStatus.text=route.preview?.let{"Synthetic conditions · ${it.label.lowercase()}. Actual safety unknown."}?:when{(here?.evidenceCount?:0)>0->"Reports associated with this stretch · open route evidence for their location limits";route.contextEvidence.orEmpty().isNotEmpty()->"Wider-area reports available · this lane’s safety remains unknown";here?.level=="UNKNOWN"->"Evidence gap here · choose Walk with me if you feel uneasy";else->"Missing reports do not establish safety · grey means unknown"}
             strip.progress=(1-projection.remainingMeters/route.distanceMeters).toFloat()
             maneuver.text=if(projection.remainingMeters<30&&route.destinationSnapMeters>30)"Walking access ends here. Your destination pin is ${route.destinationSnapMeters} m away." else if(repo.prefs.getBoolean("arrival_ready",false))"You're near your destination. Confirm arrival when ready." else route.steps.firstOrNull{it.wayPoints.lastOrNull()?.let{i->i>=projection.index}==true}?.instruction?:t.destinationLabel
         }
@@ -141,13 +141,13 @@ class ActiveTripFragment:ScreenFragment(){
         body.addView(Ui.text(c,"From your GPS position (±${proposal.origin.accuracy.toInt()} m) to ${trip.destinationLabel}",16,true))
         body.addView(Ui.text(c,"Your current route and check-in continue until you choose. An alternative is not a safety guarantee.",14,tint=R.color.on_surface_secondary))
         body.addView(map.view,LinearLayout.LayoutParams(-1,Ui.dp(c,210)))
-        var selected=proposal.routes.firstOrNull()?:return
+        var selected=proposal.routes.firstOrNull{it.preview?.recommended==true}?:proposal.routes.firstOrNull()?:return
         map.routes(proposal.routes,selected.routeId);map.location(proposal.origin)
         map.endpoints(Place("Current position",proposal.origin.latitude,proposal.origin.longitude),Place(trip.destinationLabel,trip.destinationLat,trip.destinationLng))
         map.avoidAreas(proposal.avoidAreas)
         val choices=Ui.col(c);body.addView(choices)
         val choiceButtons=mutableListOf<com.google.android.material.button.MaterialButton>()
-        fun choiceLabel(index:Int,r:RouteOption)="Option ${index+1} · ${(r.durationSeconds+59)/60} min · ${r.distanceMeters.toInt()} m"
+        fun choiceLabel(index:Int,r:RouteOption)="${if(r.preview?.recommended==true)"Preview choice" else "Option ${index+1}"} · ${(r.durationSeconds+59)/60} min · ${r.distanceMeters.toInt()} m${r.preview?.let{"\nSynthetic · ${it.label}"}.orEmpty()}"
         val select:(RouteOption)->Unit={r->selected=r;map.routes(proposal.routes,r.routeId,false);choiceButtons.forEachIndexed{index,button->val option=proposal.routes[index];button.text=(if(option.routeId==r.routeId)"✓ " else "")+choiceLabel(index,option)}}
         proposal.routes.forEachIndexed{index,r->
             val button=Ui.button(c,(if(r.routeId==selected.routeId)"✓ " else "")+choiceLabel(index,r),true){select(r)};choiceButtons.add(button);choices.addView(button)

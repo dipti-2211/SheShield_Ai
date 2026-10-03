@@ -10,6 +10,11 @@ object RouteEvidenceDialog {
     fun show(c:Context,route:RouteOption){
         val body=Ui.col(c,22)
         if(route.isDemoData)body.addView(Ui.badge(c,"FICTIONAL EVIDENCE · RECORDED DEMO"))
+        route.preview?.let{p->
+            body.addView(Ui.badge(c,"SYNTHETIC CONDITIONS · LIVE ROUTE"))
+            body.addView(Ui.card(c,Ui.rowItem(c,p.label,ConditionPreviewUi.detail(p),R.drawable.ic_walk){ConditionPreviewUi.show(c,p)}))
+            if(p.recommended)body.addView(Ui.text(c,p.recommendationReason.orEmpty(),13,tint=R.color.on_surface_secondary))
+        }
         val reports=route.evidence.orEmpty().filter{!it.historical}
         val area=route.insightContext ?: route.contextEvidence.orEmpty().filter{!it.historical&&it.setting=="public_space"&&it.category!="traffic_incident"}.take(5)
         body.addView(Ui.text(c,if(route.isDemoData)route.riskSummary else "Safety remains unknown",17,true))

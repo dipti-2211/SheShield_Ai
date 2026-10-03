@@ -66,7 +66,7 @@ class TripRepository private constructor(private val context: Context) {
     suspend fun cancelBatteryDemo(id:String)=api.cancelBatteryDemo(id)
     suspend fun plan(origin:Place?,destination:Place?,avoidAreaIds:List<String> = emptyList()):TripPlan=withContext(Dispatchers.IO){
         require(origin!=null&&destination!=null){"Choose both starting point and destination."}
-        enroll();val plan=api.plan(json(mapOf("mode" to if(demo())"REHEARSAL" else "LIVE","origin" to origin,"destination" to destination,"avoid_area_ids" to avoidAreaIds)))
+        enroll();val plan=api.plan(json(mapOf("mode" to if(demo())"REHEARSAL" else "LIVE","origin" to origin,"destination" to destination,"avoid_area_ids" to avoidAreaIds,"condition_preview" to prefs.getBoolean("condition_preview",true))))
         dao.savePlan(SavedPlan(json=gson.toJson(plan)));plan
     }
     suspend fun comparePlan(plan:TripPlan,preference:String,extraMinutes:Int):TripPlan=withContext(Dispatchers.IO){

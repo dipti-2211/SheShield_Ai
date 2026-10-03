@@ -35,7 +35,7 @@ class TripPlanningFragment:ScreenFragment(){
                 try{
                     val plan=repo.plan(origin,destination)
                     if(vm.origin!=origin||vm.destination!=destination)return@runAction
-                    vm.plan=plan;vm.selectedRouteId=plan.routes.firstOrNull()?.routeId;main.navigate(R.id.routeComparisonFragment)
+                    vm.plan=plan;vm.selectedRouteId=(plan.routes.firstOrNull{it.preview?.recommended==true}?:plan.routes.firstOrNull())?.routeId;main.navigate(R.id.routeComparisonFragment)
                 }finally{if(isAdded){findButton.isEnabled=true;originButton.isEnabled=true;destinationButton.isEnabled=true;findButton.text="Find walking routes"}}
             }
         };body.addView(findButton);body.addView(Ui.space(c,20))

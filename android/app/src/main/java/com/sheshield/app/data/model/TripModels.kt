@@ -81,9 +81,21 @@ data class RouteOption(@SerializedName("route_id") val routeId: String, val labe
     val decision: RouteDecision? = null, val environment:WalkingEnvironment? = null,
     @SerializedName("context_selection") val contextSelection:ContextSelection? = null,
     @SerializedName("via_place") val viaPlace:ViaPlace? = null,
-    @SerializedName("alternatives_status") val alternativesStatus:String? = null) {
+    @SerializedName("alternatives_status") val alternativesStatus:String? = null,
+    @SerializedName("condition_preview") val conditionPreview:ConditionPreview? = null) {
     val points get() = geometry.map { LatLng(it[1], it[0]) }
+    val preview get() = conditionPreview?.takeIf { !isDemoData && it.kind == "SYNTHETIC_WALKING_CONDITIONS" }
 }
+data class ConditionPreview(val kind:String,val version:String?,val disclosure:String?,val scope:String?,
+    val level:String,val label:String,val score:Int?,@SerializedName("coverage_percent") val coveragePercent:Int,
+    val summary:PreviewSummary?,val reasons:List<PreviewReason>?,val stretches:List<PreviewStretch>?,
+    val recommended:Boolean=false,@SerializedName("comparison_available") val comparisonAvailable:Boolean=false,
+    @SerializedName("recommendation_reason") val recommendationReason:String?,val limitations:String?)
+data class PreviewSummary(@SerializedName("lower_exposure_meters") val lowerExposureMeters:Int=0,
+    @SerializedName("mixed_meters") val mixedMeters:Int=0,@SerializedName("caution_meters") val cautionMeters:Int=0,
+    @SerializedName("unknown_meters") val unknownMeters:Int=0)
+data class PreviewReason(val level:String,val meters:Int,val conditions:List<String>)
+data class PreviewStretch(val level:String,@SerializedName("distance_meters") val distanceMeters:Int,val geometry:List<List<Double>>)
 data class WalkingSummary(@SerializedName("mapped_meters") val mappedMeters:Int=0,
     @SerializedName("lighting_known_meters") val lightingKnownMeters:Int=0,
     @SerializedName("mapped_lit_meters") val mappedLitMeters:Int=0,

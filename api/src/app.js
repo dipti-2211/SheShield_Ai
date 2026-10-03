@@ -14,6 +14,7 @@ import {deliveryAvailability,trialRecipientRegistry} from './delivery.js';
 import {protection,validateDeparture,DEVIATION_POLICY} from './deviation.js';
 import {loadWalkingData,enrichWalkingRoute,rankWalkingRoutes,nearbyPlaces} from './walking_environment.js';
 import {routePolygonStretches,insidePolygon} from './geography.js';
+import {conditionPreview,DEFAULT_CONDITION_PREVIEW} from './condition_preview.js';
 
 const digest=s=>createHash('sha256').update(s).digest('hex');
 const terminal=new Set(['COMPLETED','CANCELLED']);
@@ -50,7 +51,13 @@ export function buildApp(options={}) {
  if(config.INCIDENT_DATA_PATH){try{const bytes=readFileSync(config.INCIDENT_DATA_PATH);data=auditDataset(JSON.parse(bytes),now());dataError=data.audit.error||null;if(data.metadata)data.metadata.sha256=createHash('sha256').update(bytes).digest('hex');}catch(e){dataError='Incident dataset could not be read or validated.';}}
  let environment=loadWalkingData(options.walkingDataset,now()),environmentError=null;
  if(config.WALKING_DATA_PATH){try{environment=loadWalkingData(JSON.parse(readFileSync(config.WALKING_DATA_PATH)),now());if(!environment.version)environmentError='Walking map dataset invalid.';}catch{environmentError='Walking map dataset unavailable.';}}
- function compareRoutes(routes,at,preference='FASTEST',extra=5){return rankWalkingRoutes(labelRoutes(routes).map(r=>r.is_demo_data?r:enrichWalkingRoute(r,environment,data,at)),preference,extra);}
+ const previewEnabled=config.SALT_LAKE_CONDITION_PREVIEW==='true';
+ const preview=conditionPreview(options.conditionPreviewDataset||DEFAULT_CONDITION_PREVIEW,environment);
+ function wantsPreview(body,previous=previewEnabled){if(body.condition_preview!==undefined&&typeof body.condition_preview!=='boolean')throw new ApiError('INVALID_PREVIEW','Choose whether to show synthetic walking conditions.');return previewEnabled&&(body.condition_preview??previous);}
+ function compareRoutes(routes,at,preference='FASTEST',extra=5,showPreview=previewEnabled){
+  const ranked=rankWalkingRoutes(labelRoutes(routes).map(({condition_preview,...r})=>r.is_demo_data?r:enrichWalkingRoute(r,environment,data,at)),preference,extra);
+  return showPreview?preview(ranked,extra):ranked;
+ }
  function comparisonInput(b){if(!['FASTEST','LIGHTING','NEARBY_PLACES'].includes(b.preference||'FASTEST')||!Number.isInteger(b.max_extra_minutes??5)||(b.max_extra_minutes??5)<0||(b.max_extra_minutes??5)>15)throw new ApiError('INVALID_PREFERENCE','Choose a route preference and up to 15 additional minutes.');return {preference:b.preference||'FASTEST',extra:b.max_extra_minutes??5};}
  function areaGeometry(ids){if(!Array.isArray(ids)||ids.length>3)throw new ApiError('INVALID_AVOIDANCE','Choose up to three displayed report areas.');return ids.map(id=>{const ref=environment.report_areas.find(a=>a.id===id),a=environment.areas.find(a=>a.id===ref?.area_id);if(!a)throw new ApiError('INVALID_AVOIDANCE','This report area is unavailable.');return a.geometry;});}
  function combinedAvoidance(circles,polygons){const all=[...polygons,...(circles.length?[avoidancePolygon(circles)]:[])].flatMap(g=>g.type==='Polygon'?[g.coordinates]:g.coordinates);return all.length===1?{type:'Polygon',coordinates:all[0]}:all.length?{type:'MultiPolygon',coordinates:all}:null;}
@@ -135,10 +142,11 @@ export function buildApp(options={}) {
  function presentSos(s){return {...s,attempts:s.attempt_ids.map(k=>store.get('attempt',k)),sms_attempts:(s.sms_attempt_ids||[]).map(k=>store.get('sms_attempt',k))};}
 
  app.get('/health',async()=>({status:'ok',version:'2.0.0'}));
- app.get('/ready',async()=>({status:'ok',routing:Boolean(config.ORS_API_KEY),risk_data:data.incidents.length>0,evidence_context:data.context.length,street_reports:data.incidents.length,data_error:dataError,n8n:Boolean(config.N8N_WEBHOOK_URL&&config.WORKER_TOKEN),callbacks:Boolean(config.PUBLIC_BASE_URL&&config.TWILIO_AUTH_TOKEN),live_alerts:config.LIVE_ALERTS_ENABLED==='true',cloud_sms:config.LIVE_SMS_ENABLED==='true'&&config.LIVE_ALERTS_ENABLED==='true',rehearsal:true}));
+ app.get('/ready',async()=>({status:'ok',routing:Boolean(config.ORS_API_KEY),risk_data:data.incidents.length>0,evidence_context:data.context.length,street_reports:data.incidents.length,data_error:dataError,n8n:Boolean(config.N8N_WEBHOOK_URL&&config.WORKER_TOKEN),callbacks:Boolean(config.PUBLIC_BASE_URL&&config.TWILIO_AUTH_TOKEN),live_alerts:config.LIVE_ALERTS_ENABLED==='true',cloud_sms:config.LIVE_SMS_ENABLED==='true'&&config.LIVE_ALERTS_ENABLED==='true',rehearsal:true,condition_preview:previewEnabled?'SYNTHETIC_SALT_LAKE':'OFF'}));
  app.post('/v1/delivery/check',{preHandler:auth},async req=>{const list=contacts(req.body?.contacts||[]);await recipients.refresh(true);return {contacts:list.map(c=>deliveryAvailability(config,c)),notice:recipients.notice()};});
  app.get('/v1/evidence/status',{preHandler:auth},async()=>({audit:data.audit,sources:data.sources,coverage_areas:data.areas.filter(a=>now()-Date.parse(a.updated_at)<=30*86400000&&now()-Date.parse(a.window_end)<=30*86400000).length,dataset:data.metadata||null,scopes:data.scopes||[],observations:data.observations?.filter(o=>Date.parse(o.expires_at)>now()).length||0,
    walking_environment:{dataset_version:environment.version,collected_at:environment.collected_at,audit:environment.audit,error:environmentError},
+   condition_preview:{enabled:previewEnabled,kind:'SYNTHETIC_WALKING_CONDITIONS',scope:DEFAULT_CONDITION_PREVIEW.scope.name,disclosure:DEFAULT_CONDITION_PREVIEW.disclosure},
    policy:'Live safety is unknown. Street attribution requires two location reviews, named-street agreement and reviewed geometry. Area search bounds never establish incident location or coverage.'}));
  app.post('/v1/sessions',async(req)=>{
   if(config.ENROLLMENT_CODE&&req.body?.enrollment_code!==config.ENROLLMENT_CODE)throw new ApiError('ENROLLMENT_REQUIRED','Enter the API enrollment code.',403);
@@ -162,20 +170,21 @@ export function buildApp(options={}) {
   const routes=recorded?structuredClone(scenario.routes):await walkingRoutes(point(origin),point(destination),config.ORS_API_KEY,avoid?{avoid_polygons:avoid}:{});
   if(!recorded&&polygons.some(g=>routes.some(r=>routePolygonStretches(r.geometry,g).length)))throw new ApiError('NO_ALTERNATIVE','The returned walking routes still enter the selected area. Your prior plan remains available.',422);
   const at=recorded?Date.parse(scenario.evaluated_at):now();
-  const scored=compareRoutes(routes.map(r=>assessRoute(r,data,at,recorded?scenario.incidents:null)),at,prefs.preference,prefs.extra);
-  const plan={id:id(),owner:req.owner,mode,origin,destination,preference:prefs.preference,max_extra_minutes:prefs.extra,avoid_area_ids:areaIds,routes:scored,created_at_ms:now(),expires_at_ms:now()+3600000,attribution:recorded?scenario.attribution:'OpenRouteService / OpenStreetMap contributors',geometry_source:recorded?scenario.geometry_source:'OpenRouteService walking directions'};
+  const showPreview=mode==='LIVE'&&wantsPreview(b);
+  const scored=compareRoutes(routes.map(r=>assessRoute(r,data,at,recorded?scenario.incidents:null)),at,prefs.preference,prefs.extra,showPreview);
+  const plan={id:id(),owner:req.owner,mode,origin,destination,preference:prefs.preference,max_extra_minutes:prefs.extra,condition_preview:showPreview,avoid_area_ids:areaIds,routes:scored,created_at_ms:now(),expires_at_ms:now()+3600000,attribution:recorded?scenario.attribution:'OpenRouteService / OpenStreetMap contributors',geometry_source:recorded?scenario.geometry_source:'OpenRouteService walking directions'};
   return store.put('plan',plan);
  });
  app.post('/v1/plans/:id/compare',{preHandler:auth},async req=>{
   const plan=owned('plan',req.params.id,req.owner);if(plan.expires_at_ms<now())throw new ApiError('PLAN_EXPIRED','Calculate routes again.',409);
-  const prefs=comparisonInput(req.body||{});plan.routes=compareRoutes(plan.routes,now(),prefs.preference,prefs.extra);plan.preference=prefs.preference;plan.max_extra_minutes=prefs.extra;return store.put('plan',plan);
+  const b=req.body||{},prefs=comparisonInput(b);plan.condition_preview=plan.mode==='LIVE'&&wantsPreview(b,plan.condition_preview??false);plan.routes=compareRoutes(plan.routes,now(),prefs.preference,prefs.extra,plan.condition_preview);plan.preference=prefs.preference;plan.max_extra_minutes=prefs.extra;return store.put('plan',plan);
  });
  app.post('/v1/trips',{preHandler:auth},async(req)=>command(req,()=>{
   const b=req.body||{},plan=owned('plan',b.plan_id,req.owner);if(plan.expires_at_ms<now())throw new ApiError('PLAN_EXPIRED','Calculate routes again.',409);
   const existing=store.list('trip',req.owner).find(t=>!terminal.has(t.state));if(existing)throw new ApiError('ACTIVE_TRIP_EXISTS','Finish the current journey first.',409);
   const route=plan.routes.find(r=>r.route_id===b.route_id);if(!route)throw new ApiError('INVALID_ROUTE','Select a route from this plan.');
-  if(!route.is_demo_data){route.environment=enrichWalkingRoute(route,environment,data,now()).environment;}
-  return saveTrip({id:id(),owner:req.owner,mode:plan.mode,state:'ACTIVE',origin:plan.origin,destination:plan.destination,route,preference:plan.preference,max_extra_minutes:plan.max_extra_minutes,avoid_area_ids:plan.avoid_area_ids||[],departure_protection:protection(b.departure_protection),contacts:plan.mode==='REHEARSAL'?[]:contacts(b.contacts||[]),last_location:null,check_in:null,sos_id:null,started_at_ms:now(),ended_at_ms:null,last_sequence:-1,version:0});
+  const refreshed=compareRoutes(plan.routes,now(),plan.preference,plan.max_extra_minutes,previewEnabled&&plan.condition_preview===true).find(r=>r.route_id===route.route_id)||route;
+  return saveTrip({id:id(),owner:req.owner,mode:plan.mode,state:'ACTIVE',origin:plan.origin,destination:plan.destination,route:refreshed,condition_preview:plan.condition_preview===true,preference:plan.preference,max_extra_minutes:plan.max_extra_minutes,avoid_area_ids:plan.avoid_area_ids||[],departure_protection:protection(b.departure_protection),contacts:plan.mode==='REHEARSAL'?[]:contacts(b.contacts||[]),last_location:null,check_in:null,sos_id:null,started_at_ms:now(),ended_at_ms:null,last_sequence:-1,version:0});
  }));
  app.get('/v1/trips',{preHandler:auth},async req=>({trips:store.list('trip',req.owner).sort((a,b)=>b.started_at_ms-a.started_at_ms)}));
  app.get('/v1/trips/:id',{preHandler:auth},async req=>owned('trip',req.params.id,req.owner));
@@ -281,7 +290,7 @@ export function buildApp(options={}) {
   const latest=activeTrip(t.id,req.owner);if(latest.route.route_revision!==t.route.route_revision||!['ACTIVE','CHECK_IN_PENDING'].includes(latest.state))throw new ApiError('ROUTE_CHANGED','The journey changed while calculating. Request alternatives again.',409);
   const usable=routes.filter(r=>(r.origin_snap_meters||0)<=50&&avoidsAreas(r,areas)&&polygons.every(g=>!routePolygonStretches(r.geometry,g).length)&&(via?r.geometry.some((p,i)=>i>0&&segmentDistanceKm(via.point,r.geometry[i-1],p)*1000<=40):differentAhead(r,t.route,origin)));
   if(!usable.length)throw new ApiError('NO_ALTERNATIVE','No different walking route was found from your position with these avoidances. Your current route and check-in remain active.',422,true);
-  const scored=compareRoutes(usable.map(r=>({...assessRoute(r,data,now()),route_revision:(t.route.route_revision||1)+1})),now(),t.preference||'FASTEST',t.max_extra_minutes??5);
+  const scored=compareRoutes(usable.map(r=>({...assessRoute(r,data,now()),route_revision:(t.route.route_revision||1)+1})),now(),t.preference||'FASTEST',t.max_extra_minutes??5,previewEnabled&&t.condition_preview===true);
   if(via)scored.forEach(r=>{r.via_place={id:via.id,name:via.name,point:via.point,source_url:via.source_url,entrance_status:via.entrance_status};r.decision.summary=`Walk via ${via.name} towards your destination. Check its public entrance and hours; assistance is unconfirmed.`;});
   const proposal={id:t.id,owner:t.owner,proposal_id:id(),routes:scored,route:scored[0],origin:req.body.origin,avoid_areas:areas,avoid_area_ids:areaIds,base_revision:t.route.route_revision,expires_at_ms:now()+300000};store.put('reroute',proposal);
   return {...scored[0],trip_id:t.id,proposal_id:proposal.proposal_id,routes:scored,origin:proposal.origin,avoid_areas:areas,avoid_area_ids:areaIds,expires_at_ms:proposal.expires_at_ms};

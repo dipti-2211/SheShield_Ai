@@ -38,11 +38,16 @@ class RouteMapRenderer(context:Context,state:Bundle?=null){
     var onPlace:((MappedPlace)->Unit)?=null
     private var requestedOrigin:Place?=null
     private var requestedDestination:Place?=null
+    private val previewLabel=Ui.text(context,"Salt Lake preview · synthetic",11,true).apply{
+        setPadding(Ui.dp(context,10),Ui.dp(context,6),Ui.dp(context,10),Ui.dp(context,6))
+        background=Ui.background(context,R.color.surface,12);visibility=android.view.View.GONE
+    }
     var onPick:((Place)->Unit)?=null
     var onSelect:((String)->Unit)?=null
     var onReady:(()->Unit)?=null
     init{
         Mapbox.getInstance(context);view=MapView(context);view.onCreate(state)
+        view.addView(previewLabel,android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM or android.view.Gravity.START).apply{setMargins(Ui.dp(context,12),0,0,Ui.dp(context,28))})
         view.getMapAsync{m->map=m
             m.setStyle(Style.Builder().fromJson("""{"version":8,"sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"attribution":"© OpenStreetMap contributors"}},"layers":[{"id":"osm","type":"raster","source":"osm","paint":{"raster-saturation":-0.65,"raster-contrast":-0.05,"raster-brightness-max":${if(view.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES)0.45 else 1.0}}}]}""")){s->
                 style=s;m.uiSettings.isCompassEnabled=navigating
@@ -51,9 +56,9 @@ class RouteMapRenderer(context:Context,state:Bundle?=null){
                 s.addLayer(LineLayer("report-area-outline","report-areas").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(1.5f),lineDasharray(arrayOf(3f,3f))))
                 s.addLayer(FillLayer("avoidance-fill","avoidance").withProperties(fillColor(Ui.color(view.context,R.color.risk_high)),fillOpacity(.25f)))
                 s.addLayer(LineLayer("avoidance-outline","avoidance").withProperties(lineColor(Ui.color(view.context,R.color.risk_high)),lineWidth(2f)))
-                s.addLayer(LineLayer("alternative-lines","alternatives").withProperties(lineColor(Ui.color(view.context,R.color.on_surface_secondary)),lineWidth(4f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
+                s.addLayer(LineLayer("alternative-lines","alternatives").withProperties(lineColor(Expression.get("route_color")),lineWidth(4f),lineOpacity(.8f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
                 s.addLayer(LineLayer("route-outline","selected").withProperties(lineColor(Ui.color(view.context,R.color.surface)),lineWidth(9f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
-                s.addLayer(LineLayer("route-line","selected").withProperties(lineColor(Ui.color(view.context,R.color.purple_primary)),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
+                s.addLayer(LineLayer("route-line","selected").withProperties(lineColor(Expression.get("route_color")),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND),lineJoin(Property.LINE_JOIN_ROUND)))
                 s.addLayer(LineLayer("unknown-line","unknown").withProperties(lineColor(Ui.color(view.context,R.color.risk_unknown)),lineWidth(3f),lineOpacity(.55f),lineDasharray(arrayOf(2f,2f))))
                 s.addLayer(LineLayer("report-line","reports").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(5f)))
                 s.addLayer(LineLayer("medium-line","medium").withProperties(lineColor(Ui.color(view.context,R.color.risk_medium)),lineWidth(5f),lineCap(Property.LINE_CAP_ROUND)))
@@ -78,19 +83,27 @@ class RouteMapRenderer(context:Context,state:Bundle?=null){
             m.addOnCameraMoveStartedListener{reason->if(reason==MapboxMap.OnCameraMoveStartedListener.REASON_API_GESTURE)follow=false}
         }
     }
-    private fun line(r:RouteOption)=Feature.fromGeometry(LineString.fromLngLats(r.geometry.map{Point.fromLngLat(it[0],it[1])})).apply{addStringProperty("route_id",r.routeId)}
+    private fun lines(r:RouteOption,alternative:Boolean=false):List<Feature>{
+        val preview=r.preview
+        val parts=preview?.stretches.orEmpty().filter{s->s.geometry.size>1&&s.geometry.all{it.size==2}}
+        fun feature(points:List<List<Double>>,tint:Int)=Feature.fromGeometry(LineString.fromLngLats(points.map{Point.fromLngLat(it[0],it[1])})).apply{
+            addStringProperty("route_id",r.routeId);addStringProperty("route_color",String.format(java.util.Locale.ROOT,"#%06X",Ui.color(view.context,tint) and 0xFFFFFF))
+        }
+        return if(parts.isNotEmpty())parts.map{feature(it.geometry,Ui.riskColor(it.level))}else listOf(feature(r.geometry,if(alternative)R.color.on_surface_secondary else R.color.purple_primary))
+    }
     private fun source(id:String,features:List<Feature>){style?.getSourceAs<GeoJsonSource>(id)?.setGeoJson(FeatureCollection.fromFeatures(features))}
     fun routes(routes:List<RouteOption>,selectedId:String?,fit:Boolean=true){options=routes;selected=selectedId;draw(fit);if(navigating)followPosition(false)}
     private fun draw(fit:Boolean){
         val m=map?:return;if(style==null)return
-        source("alternatives",options.filter{it.routeId!=selected}.map{line(it)})
+        previewLabel.visibility=if(options.any{it.preview!=null})android.view.View.VISIBLE else android.view.View.GONE
+        source("alternatives",options.filter{it.routeId!=selected}.flatMap{lines(it,true)})
         val r=options.firstOrNull{it.routeId==selected}?:options.firstOrNull()
-        source("selected",r?.let{listOf(line(it))}.orEmpty())
-        listOf("unknown","reports","high","medium").forEach{level->source(level,r?.segments?.filter{(if(level=="reports")it.evidenceCount>0 else if(!r.isDemoData)level=="unknown" else it.level.equals(level,true))&&it.startIndex in r.geometry.indices&&it.endIndex in r.geometry.indices}?.map{s->Feature.fromGeometry(LineString.fromLngLats(r.geometry.subList(s.startIndex,s.endIndex+1).map{Point.fromLngLat(it[0],it[1])}))}.orEmpty())}
+        source("selected",r?.let{lines(it)}.orEmpty())
+        listOf("unknown","reports","high","medium").forEach{level->source(level,r?.segments?.filter{(if(level=="reports")it.evidenceCount>0 else if(!r.isDemoData)level=="unknown"&&r.preview==null else it.level.equals(level,true))&&it.startIndex in r.geometry.indices&&it.endIndex in r.geometry.indices}?.map{s->Feature.fromGeometry(LineString.fromLngLats(r.geometry.subList(s.startIndex,s.endIndex+1).map{Point.fromLngLat(it[0],it[1])}))}.orEmpty())}
         val endpointPoints=r?.geometry?.takeIf{it.size>1}?.let{listOf(requestedOrigin?.let{p->listOf(p.longitude,p.latitude)}?:it.first(),requestedDestination?.let{p->listOf(p.longitude,p.latitude)}?:it.last())}.orEmpty()
         drawDetails(r)
         source("endpoints",endpointPoints.map{p->Feature.fromGeometry(Point.fromLngLat(p[0],p[1]))})
-        if(fit&&r!=null&&r.geometry.size>1)view.post{if(!navigating||!follow)runCatching{m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes((r.geometry+endpointPoints).map{LatLng(it[1],it[0])}).build(),Ui.dp(view.context,40)))}}
+        if(fit&&r!=null&&r.geometry.size>1)view.post{if(!navigating||!follow)runCatching{m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes((options.flatMap{it.geometry}+endpointPoints).map{LatLng(it[1],it[0])}).build(),Ui.dp(view.context,40)))}}
     }
     fun detailLayer(layer:String){detailLayer=layer;draw(false)}
     private fun drawDetails(r:RouteOption?){

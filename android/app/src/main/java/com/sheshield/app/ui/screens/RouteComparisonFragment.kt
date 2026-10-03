@@ -37,7 +37,7 @@ class RouteComparisonFragment:ScreenFragment(){
         routeScroller=HorizontalScrollView(c).apply{isHorizontalScrollBarEnabled=false;clipToPadding=false;addView(cards);overScrollMode=View.OVER_SCROLL_IF_CONTENT_SCROLLS}
         panel.addView(routeScroller,LinearLayout.LayoutParams(-1,-2))
         alternativesNote=Ui.text(c,"",13,tint=R.color.on_surface_secondary);panel.addView(alternativesNote)
-        panel.addView(Ui.rowItem(c,"Refresh walking options",null,R.drawable.ic_route){val p=plan?:return@rowItem;runAction{val updated=repo.plan(p.origin,p.destination,p.avoidAreaIds.orEmpty());plan=updated;main.planningViewModel.plan=updated;selected=updated.routes.firstOrNull();main.planningViewModel.selectedRouteId=selected?.routeId;render()}})
+        panel.addView(Ui.rowItem(c,"Refresh walking options",null,R.drawable.ic_route){val p=plan?:return@rowItem;runAction{val updated=repo.plan(p.origin,p.destination,p.avoidAreaIds.orEmpty());plan=updated;main.planningViewModel.plan=updated;selected=updated.routes.firstOrNull{it.preview?.recommended==true}?:updated.routes.firstOrNull();main.planningViewModel.selectedRouteId=selected?.routeId;render()}})
         panel.addView(Ui.rowItem(c,"Route insights","Sources, lighting and information gaps",R.drawable.ic_info){selected?.let{RouteEvidenceDialog.show(c,it)}})
         val panelScroll=Ui.scroll(c,panel)
         root.addView(panelScroll,LinearLayout.LayoutParams(-1,Ui.dp(c,minOf(310,maxOf(190,(resources.displayMetrics.heightPixels/resources.displayMetrics.density*.32f).toInt())))))
@@ -56,23 +56,28 @@ class RouteComparisonFragment:ScreenFragment(){
         body.addView(window);body.addView(Ui.space(c,16));body.addView(Ui.text(c,"Accurate GPS must stay off your route for about 45 seconds. A missed check-in requests alerts to your circle. Wait for server registration to confirm remote monitoring.",14,tint=R.color.on_surface_secondary))
         Ui.dialog(c).setTitle("Departure check-ins").setView(body).setPositiveButton("Done",null).show()
     }
-    override fun onViewCreated(view:View,state:Bundle?){super.onViewCreated(view,state);runAction{plan=main.planningViewModel.plan?:repo.savedPlan();val p=plan?:error("Your route plan was not found. Calculate routes again.");if(main.planningViewModel.origin?.let{it!=p.origin}==true||main.planningViewModel.destination?.let{it!=p.destination}==true)error("Your endpoints changed. Calculate a new route for those locations.");selected=p.routes.firstOrNull{it.routeId==main.planningViewModel.selectedRouteId}?:p.routes.firstOrNull();render()}}
+    override fun onViewCreated(view:View,state:Bundle?){super.onViewCreated(view,state);runAction{plan=main.planningViewModel.plan?:repo.savedPlan();val p=plan?:error("Your route plan was not found. Calculate routes again.");if(main.planningViewModel.origin?.let{it!=p.origin}==true||main.planningViewModel.destination?.let{it!=p.destination}==true)error("Your endpoints changed. Calculate a new route for those locations.");selected=p.routes.firstOrNull{it.routeId==main.planningViewModel.selectedRouteId}?:p.routes.firstOrNull{it.preview?.recommended==true}?:p.routes.firstOrNull();render()}}
     private fun render(){val c=requireContext();val p=plan?:return;val offset=routeScroller.scrollX;cards.removeAllViews()
         endpointsLabel.text="${p.origin.label.substringBefore(',')} → ${p.destination.label.substringBefore(',')}"
         endpointsLabel.contentDescription="${p.origin.label} to ${p.destination.label}"
         alternativesNote.text=when{p.routes.firstOrNull()?.alternativesStatus=="TEMPORARILY_UNAVAILABLE"->"One walking route recovered. Alternatives are temporarily unavailable; refresh to retry.";p.routes.size==1->"The walking service found one distinct route for these endpoints.";else->"${p.routes.size} distinct walking options"}
+        if(p.routes.any{it.preview!=null})alternativesNote.text="${alternativesNote.text}\nSynthetic conditions · green supportive, amber mixed, red exposed. Actual safety unknown."
         p.routes.forEach{route->
             val isSelected=selected?.routeId==route.routeId;val body=Ui.col(c,16)
             body.addView(Ui.row(c).apply{
-                addView(Ui.text(c,if(route.extraMinutes==0)"Fastest walk" else "+${route.extraMinutes} min walking",14,true).apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f)})
+                addView(Ui.text(c,if(route.preview?.recommended==true)"Preview choice" else if(route.extraMinutes==0)"Fastest walk" else "+${route.extraMinutes} min walking",14,true).apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f)})
                 if(isSelected)addView(Ui.glyph(c,R.drawable.ic_check,R.color.purple_primary,18))
             })
             body.addView(Ui.space(c,12));body.addView(Ui.text(c,"${(route.durationSeconds+59)/60} min",30,true));body.addView(Ui.space(c,6))
             body.addView(Ui.text(c,"${"%.1f".format(route.distanceMeters/1000)} km · walking",14,tint=R.color.on_surface_secondary));body.addView(Ui.space(c,12))
-            body.addView(Ui.text(c,if(route.isDemoData)"Practice · fictional ${route.riskLevel.lowercase()} exposure" else "Safety information incomplete",12,tint=if(route.isDemoData)R.color.risk_medium else R.color.on_surface_secondary))
+            route.preview?.let{preview->
+                body.addView(Ui.text(c,preview.label,15,true,ConditionPreviewUi.color(preview)))
+                body.addView(Ui.text(c,ConditionPreviewUi.detail(preview),12,tint=R.color.on_surface_secondary))
+                body.addView(Ui.text(c,"Synthetic conditions${if(route.extraMinutes>0)" · +${route.extraMinutes} min" else " · fastest"}",11,tint=R.color.on_surface_secondary))
+            }?:body.addView(Ui.text(c,if(route.isDemoData)"Practice · fictional ${route.riskLevel.lowercase()} exposure" else "Safety information incomplete",12,tint=if(route.isDemoData)R.color.risk_medium else R.color.on_surface_secondary))
             if((route.environment?.summary?.restrictedMeters?:0)>0)body.addView(Ui.text(c,"Access restriction recorded",13,true,R.color.risk_high))
             val card=Ui.card(c,body,isSelected);card.layoutParams=LinearLayout.LayoutParams(Ui.dp(c,230),-2).apply{marginEnd=Ui.dp(c,10);topMargin=Ui.dp(c,10);bottomMargin=Ui.dp(c,4)}
-            card.isFocusable=true;card.contentDescription="${route.label}, ${(route.durationSeconds+59)/60} minutes, ${route.distanceMeters.toInt()} metres${if(isSelected)", selected" else ""}"
+            card.isFocusable=true;card.contentDescription="${route.label}, ${(route.durationSeconds+59)/60} minutes, ${route.distanceMeters.toInt()} metres${route.preview?.let{", synthetic conditions: ${it.label}, ${ConditionPreviewUi.detail(it)}"}.orEmpty()}${if(isSelected)", selected" else ""}"
             card.setOnClickListener{selected=route;main.planningViewModel.selectedRouteId=route.routeId;render()};cards.addView(card)
         }
         routeScroller.post{routeScroller.scrollTo(offset,0)};renderer?.routes(p.routes,selected?.routeId);renderer?.endpoints(p.origin,p.destination)
@@ -91,7 +96,7 @@ class RouteComparisonFragment:ScreenFragment(){
     }
     private fun avoidArea(id:String){val p=plan?:return
         Ui.confirm(requireContext(),"Find routes around this area?","This is an area mentioned by a report; its streets have not been classified as dangerous. Routes cannot avoid the whole area if your start or destination is inside it.","Find alternatives"){
-            runAction{val updated=repo.plan(p.origin,p.destination,(p.avoidAreaIds.orEmpty()+id).distinct());plan=updated;main.planningViewModel.plan=updated;selected=updated.routes.firstOrNull();main.planningViewModel.selectedRouteId=selected?.routeId;render()}
+            runAction{val updated=repo.plan(p.origin,p.destination,(p.avoidAreaIds.orEmpty()+id).distinct());plan=updated;main.planningViewModel.plan=updated;selected=updated.routes.firstOrNull{it.preview?.recommended==true}?:updated.routes.firstOrNull();main.planningViewModel.selectedRouteId=selected?.routeId;render()}
         }
     }
     private fun start(){val p=plan?:return;val route=selected?:return

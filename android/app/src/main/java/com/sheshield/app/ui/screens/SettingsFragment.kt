@@ -36,6 +36,10 @@ class SettingsFragment:ScreenFragment(){
                 runAction{if(repo.active()!=null){Ui.error(c,"Finish your current journey before changing modes.");return@runAction};repo.setDemo(index==1);main.planningViewModel.reset();dialog.dismiss();main.nav.navigate(R.id.settingsFragment,null,androidx.navigation.NavOptions.Builder().setPopUpTo(R.id.settingsFragment,true).build())}
             }.setNegativeButton("Cancel",null).show()
         });body.addView(Ui.card(c,experience))
+        body.addView(Ui.section(c,"Route comparison"))
+        body.addView(Ui.card(c,Ui.toggle(c,"Salt Lake condition preview","Synthetic lighting, activity and pedestrian space on live routes. Actual safety remains unknown. Applies to new plans.",repo.prefs.getBoolean("condition_preview",true)){enabled->
+            repo.prefs.edit().putBoolean("condition_preview",enabled).apply()
+        }.first))
         body.addView(Ui.section(c,"Journey alerts"));val alerts=Ui.col(c)
         alerts.addView(Ui.rowItem(c,"Permissions","Location, notifications and background access",R.drawable.ic_bell){startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${c.packageName}")))})
         alerts.addView(Ui.divider(c))
