@@ -89,7 +89,7 @@ object Ui {
     fun badge(c:Context,label:String,tint:Int=R.color.purple_primary)=text(c,label,12,true,tint).apply{
         setPadding(dp(c,10),dp(c,6),dp(c,10),dp(c,6));background=background(c,when(tint){R.color.risk_medium->R.color.warning_surface;R.color.risk_high->R.color.danger_surface;R.color.risk_low->R.color.teal_surface;else->R.color.selection},8);layoutParams=LinearLayout.LayoutParams(-2,-2)
     }
-    fun dialog(c:Context)=MaterialAlertDialogBuilder(c,R.style.ThemeOverlay_SheShield_Dialog)
+    fun dialog(c:Context)=MaterialAlertDialogBuilder(c,R.style.ThemeOverlay_Waymate_Dialog)
     fun error(c:Context,message:String){val title=when{message.contains("connection",true)||message.contains("internet",true)->"Connection unavailable";message.contains("GPS",true)||message.contains("location permission",true)->"Location unavailable";else->"Unable to continue"};dialog(c).setTitle(title).setMessage(message).setPositiveButton("OK",null).show()}
     fun info(c:Context,title:String,message:String){dialog(c).setTitle(title).setMessage(message).setPositiveButton("Done",null).show()}
     fun confirm(c:Context,title:String,message:String,positive:String="Continue",action:()->Unit){

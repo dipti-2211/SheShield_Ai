@@ -2,7 +2,7 @@ package com.sheshield.app
 
 import com.google.gson.JsonParser
 import com.google.gson.JsonObject
-import com.sheshield.app.data.network.SheShieldApi
+import com.sheshield.app.data.network.WaymateApi
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -32,7 +32,7 @@ class CompanionSharingTest {
             }
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("OK").body(response.toResponseBody("application/json".toMediaType())).build()
         }.build()
-        val api=Retrofit.Builder().baseUrl("https://api.example/").client(client).addConverterFactory(GsonConverterFactory.create()).build().create(SheShieldApi::class.java)
+        val api=Retrofit.Builder().baseUrl("https://api.example/").client(client).addConverterFactory(GsonConverterFactory.create()).build().create(WaymateApi::class.java)
         val body=JsonObject().apply{add("contact",JsonParser.parseString("""{"name":"Chosen","phone":"+919999999999"}"""))}
         val message=api.companionSms("current-trip","send-once",body);assertEquals("QUEUED",message.status)
         assertEquals("DELIVERED",api.companionMessage(message.id).status);assertEquals(2,requests)
@@ -54,7 +54,7 @@ class CompanionSharingTest {
                     .toResponseBody("application/json".toMediaType())).build()
         }.build()
         val api = Retrofit.Builder().baseUrl("https://api.example/").client(client)
-            .addConverterFactory(GsonConverterFactory.create()).build().create(SheShieldApi::class.java)
+            .addConverterFactory(GsonConverterFactory.create()).build().create(WaymateApi::class.java)
 
         assertEquals("https://api.example/share/private-token", api.share("current-trip").url)
         assertEquals(1, requests)

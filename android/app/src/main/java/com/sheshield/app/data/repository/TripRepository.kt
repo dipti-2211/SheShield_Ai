@@ -48,6 +48,22 @@ class TripRepository private constructor(private val context: Context) {
     suspend fun enroll(){if(prefs.getString("session_token",null)==null){val s=api.enroll(mapOf("enrollment_code" to (prefs.getString("enrollment_code","")?:"")));prefs.edit().putString("session_token",s.token).apply()}}
     suspend fun ready()=api.ready()
     suspend fun search(query:String):List<Place>{enroll();return api.places(query).places}
+    private val batteryMutex=Mutex()
+    suspend fun sendBatteryHeartbeat(reading:com.sheshield.app.util.BatteryReading)=batteryMutex.withLock {
+        val t=active()?.takeUnless{it.isRehearsal}?:return@withLock
+        val body=mutableMapOf<String,Any>("percent" to reading.percent,"charging" to reading.charging,"observed_at_ms" to reading.observedAtMs,"enabled" to prefs.getBoolean("battery_protection",true))
+        if(System.currentTimeMillis()-t.lastUpdateMs in 0..600000&&t.accuracyMeters in 0f..1000f)
+            body["location"]=LocationFix(t.lastLatitude,t.lastLongitude,t.accuracyMeters,t.lastUpdateMs)
+        try{
+            enroll();val watch=api.batteryHeartbeat(t.tripId,json(body))
+            prefs.edit().putLong("battery_registered:${t.tripId}",watch.lastSeenAtMs).putString("battery_state:${t.tripId}",watch.state).remove("battery_error:${t.tripId}").apply()
+        }catch(e:kotlinx.coroutines.CancellationException){throw e}
+        catch(e:Exception){prefs.edit().putString("battery_error:${t.tripId}",NetworkClient.message(e)).apply();throw e}
+    }
+    suspend fun batteryWatch(t:ActiveTrip):BatteryWatch{enroll();return api.batteryWatch(t.tripId)}
+    suspend fun startBatteryDemo(recipient:TrustedContact?=null):BatteryDemo{enroll();return api.batteryDemo(json(mapOf("contacts" to (recipient?.let{listOf(it)}?:contacts()),"deliver_sms" to (recipient!=null))))}
+    suspend fun batteryDemoStatus(id:String)=api.batteryDemoStatus(id)
+    suspend fun cancelBatteryDemo(id:String)=api.cancelBatteryDemo(id)
     suspend fun plan(origin:Place?,destination:Place?,avoidAreaIds:List<String> = emptyList()):TripPlan=withContext(Dispatchers.IO){
         require(origin!=null&&destination!=null){"Choose both starting point and destination."}
         enroll();val plan=api.plan(json(mapOf("mode" to if(demo())"REHEARSAL" else "LIVE","origin" to origin,"destination" to destination,"avoid_area_ids" to avoidAreaIds)))

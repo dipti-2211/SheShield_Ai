@@ -80,7 +80,8 @@ data class RouteOption(@SerializedName("route_id") val routeId: String, val labe
     val observations: List<StreetObservation>? = null,
     val decision: RouteDecision? = null, val environment:WalkingEnvironment? = null,
     @SerializedName("context_selection") val contextSelection:ContextSelection? = null,
-    @SerializedName("via_place") val viaPlace:ViaPlace? = null) {
+    @SerializedName("via_place") val viaPlace:ViaPlace? = null,
+    @SerializedName("alternatives_status") val alternativesStatus:String? = null) {
     val points get() = geometry.map { LatLng(it[1], it[0]) }
 }
 data class WalkingSummary(@SerializedName("mapped_meters") val mappedMeters:Int=0,
@@ -173,6 +174,18 @@ data class DeliveryContact(val contact:TrustedContact,@SerializedName("voice_con
     @SerializedName("sms_configured") val smsConfigured:Boolean,@SerializedName("voice_reason") val voiceReason:String?,@SerializedName("sms_reason") val smsReason:String?)
 data class DeliveryCheck(val contacts:List<DeliveryContact>,val notice:String)
 data class CompanionMessage(val id:String,val contact:TrustedContact,val status:String)
+data class BatteryPosition(val latitude:Double,val longitude:Double,val accuracy:Float,
+    @SerializedName("timestamp_ms") val timestampMs:Long,val address:String?=null)
+data class BatteryMessage(val id:String?=null,val contact:TrustedContact,val status:String,val message:String?=null)
+data class BatteryWatch(val state:String,val percent:Int=0,
+    @SerializedName("deadline_ms") val deadlineMs:Long?=null,
+    @SerializedName("last_seen_at_ms") val lastSeenAtMs:Long=0,
+    val location:BatteryPosition?=null,
+    @SerializedName("sms_attempts") val messages:List<BatteryMessage> = emptyList())
+data class BatteryDemo(val id:String,val state:String,
+    @SerializedName("deadline_ms") val deadlineMs:Long,val message:String?=null,
+    @SerializedName("server_now_ms") val serverNowMs:Long=0,
+    @SerializedName("sms_attempts") val messages:List<BatteryMessage> = emptyList())
 data class ContextSelection(val basis:String,@SerializedName("radius_meters") val radiusMeters:Int?,val notice:String)
 data class SosIncident(val id: String, @SerializedName("trip_id") val tripId: String? = null,
     val mode: String, val status: String, val cancelled: Boolean = false, val location: LocationFix? = null,

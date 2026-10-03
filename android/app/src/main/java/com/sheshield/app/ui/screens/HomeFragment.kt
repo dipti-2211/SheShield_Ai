@@ -11,8 +11,8 @@ class HomeFragment:ScreenFragment(){
     override fun onCreateView(inflater:LayoutInflater,container:ViewGroup?,state:Bundle?):View{
         val c=requireContext();val body=Ui.col(c,22)
         body.addView(Ui.row(c).apply{
-            addView(Ui.symbol(c,R.drawable.ic_shield,R.color.purple_primary,R.color.selection,38))
-            addView(Ui.text(c,"SheShield",22,true).apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f);setPadding(Ui.dp(c,10),0,0,0);letterSpacing=-.025f})
+            addView(ImageView(c).apply{setImageResource(R.drawable.ic_launcher);layoutParams=LinearLayout.LayoutParams(Ui.dp(c,38),Ui.dp(c,38));importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO})
+            addView(Ui.text(c,"Waymate",22,true).apply{layoutParams=LinearLayout.LayoutParams(0,-2,1f);setPadding(Ui.dp(c,10),0,0,0);letterSpacing=-.025f})
             addView(Ui.icon(c,R.drawable.ic_settings,"Settings"){main.navigate(R.id.settingsFragment)})
         })
         body.addView(Ui.space(c,28));body.addView(Ui.title(c,"Where are you\nheading?",34));body.addView(Ui.space(c,10))
@@ -39,7 +39,7 @@ class HomeFragment:ScreenFragment(){
     }
     override fun onViewCreated(view:View,state:Bundle?){super.onViewCreated(view,state)
         main.tripViewModel.activeTrip.observe(viewLifecycleOwner){resumeCard?.visibility=if(it!=null)View.VISIBLE else View.GONE}
-        if(!repo.prefs.getBoolean("onboarded",false))view.post{if(isAdded)Ui.dialog(requireContext()).setTitle("Welcome to SheShield")
+        if(!repo.prefs.getBoolean("onboarded",false))view.post{if(isAdded)Ui.dialog(requireContext()).setTitle("Welcome to Waymate")
             .setMessage("Choose your route, keep your circle close and set a check-in when you feel uneasy.\n\nPractice mode lets you explore with simulated alerts. Route information includes its sources and any gaps.")
             .setPositiveButton("Get started"){_,_->repo.prefs.edit().putBoolean("onboarded",true).apply()}.setNeutralButton("Add my circle"){_,_->repo.prefs.edit().putBoolean("onboarded",true).apply();main.navigate(R.id.contactsFragment)}.show()}
     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">SheShield</string>
-    <string name="title_home">SheShield</string>
+    <string name="app_name">Waymate</string>
+    <string name="title_home">Waymate</string>
     <string name="title_plan_trip">Plan a Safe Trip</string>
     <string name="title_route_comparison">Choose Your Route</string>
     <string name="title_active_trip">Active Trip</string>
@@ -27,5 +27,5 @@
     <string name="label_demo_mode">Demo mode (use fixture data)</string>
     <string name="label_resume_trip">Resume active trip</string>
 
-    <string name="safety_disclaimer">Risk scores are based on reported crime data. SheShield does not guarantee safety.</string>
+    <string name="safety_disclaimer">Risk scores are based on reported crime data. Waymate does not guarantee safety.</string>
 </resources>

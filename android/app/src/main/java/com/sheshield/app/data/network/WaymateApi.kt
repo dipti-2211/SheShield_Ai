@@ -4,7 +4,7 @@ import com.google.gson.JsonObject
 import com.sheshield.app.data.model.*
 import retrofit2.http.*
 
-interface SheShieldApi {
+interface WaymateApi {
     @GET("ready") suspend fun ready(): ReadyResponse
     @POST("v1/sessions") suspend fun enroll(@Body body: Map<String,String>): SessionResponse
     @GET("v1/places") suspend fun places(@Query("q") query: String): PlacesResponse
@@ -24,4 +24,9 @@ interface SheShieldApi {
     @GET("v1/companion-sms/{id}") suspend fun companionMessage(@Path("id") id:String):CompanionMessage
     @DELETE("v1/trips/{id}/share") suspend fun revokeShares(@Path("id") id: String): JsonObject
     @DELETE("v1/trips/{id}") suspend fun deleteTrip(@Path("id") id: String): JsonObject
+    @POST("v1/trips/{id}/battery") suspend fun batteryHeartbeat(@Path("id") id:String,@Body body:JsonObject):BatteryWatch
+    @GET("v1/trips/{id}/battery") suspend fun batteryWatch(@Path("id") id:String):BatteryWatch
+    @POST("v1/battery-demo") suspend fun batteryDemo(@Body body:JsonObject):BatteryDemo
+    @GET("v1/battery-demo/{id}") suspend fun batteryDemoStatus(@Path("id") id:String):BatteryDemo
+    @DELETE("v1/battery-demo/{id}") suspend fun cancelBatteryDemo(@Path("id") id:String):JsonObject
 }

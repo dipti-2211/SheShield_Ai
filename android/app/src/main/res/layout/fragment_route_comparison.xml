@@ -46,7 +46,7 @@
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_start_trip"
-        style="@style/Widget.SheShield.PrimaryButton"
+        style="@style/Widget.Waymate.PrimaryButton"
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:text="@string/btn_start_trip"

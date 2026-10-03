@@ -25,7 +25,7 @@ class SosFragment:ScreenFragment(){
         details=Ui.col(c);body.addView(details)
         footer.addView(Ui.button(c,"Call emergency services · 112",danger=true){startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:112")))})
         body.addView(Ui.section(c,"Other ways to reach your circle"));body.addView(Ui.button(c,"Open text message",true){val i=incident?:return@button;if(i.contacts.isEmpty()){Ui.error(c,"Add a trusted contact in Circle first.");return@button};if(i.mode=="REHEARSAL"){Ui.error(c,"Rehearsal sends no real messages. Switch modes for device texting.");return@button}
-            val loc=i.location;val text="SheShield SOS: I may need help."+(loc?.let{" Last known location: https://maps.google.com/?q=${it.latitude},${it.longitude}"}?:" Location unavailable.")
+            val loc=i.location;val text="Waymate SOS: I may need help."+(loc?.let{" Last known location: https://maps.google.com/?q=${it.latitude},${it.longitude}"}?:" Location unavailable.")
             runCatching{startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:"+i.contacts.joinToString(";"){it.phone})).putExtra("sms_body",text))}.onFailure{Ui.error(c,"No SMS app is available on this device.")}
         })
         body.addView(Ui.button(c,"Send SMS through SIM",true){val i=incident?:return@button

@@ -14,16 +14,16 @@ function spokenAge(location,now){
 }
 export function voiceAlertMessage(incident,now=Date.now()){
  const loc=incident.location;
- const locationText=loc?`Their last recorded position was latitude ${loc.latitude}, longitude ${loc.longitude}. ${spokenAge(loc,now)}`:'';
+ const locationText=loc?(loc.address?`Their last recorded position was near ${loc.address}. ${spokenAge(loc,now)}`:`${spokenAge(loc,now)} An address could not be confirmed. Please open the map link in their alert text to see the recorded position.`):'';
  return [
-  `SheShield alert. Your contact ${incident.trigger==='TIMEOUT'?(incident.check_in_kind==='DEVIATION'?'missed a safety check-in after moving away from their planned route':'missed a safety check-in'):'requested help'}.`,
+  `Waymate alert. Your contact ${incident.trigger==='TIMEOUT'?(incident.check_in_kind==='DEVIATION'?'missed a safety check-in after moving away from their planned route':'missed a safety check-in'):'requested help'}.`,
   locationText,
   'Please call them now. Press 1 to acknowledge you have received this alert.'
  ].filter(Boolean).join(' ');
 }
 export function smsAlertMessage(incident){
  const loc=incident.location,recorded=recordedTime(loc);
- const locationText=loc?` Last recorded position (${recorded?recorded.toISOString():'recording time unknown'}): https://maps.google.com/?q=${loc.latitude},${loc.longitude}`:' No location was shared with this alert.';
+ const locationText=loc?` Last recorded position${loc.address?' near '+loc.address:''} (${recorded?recorded.toISOString():'recording time unknown'}): https://maps.google.com/?q=${loc.latitude},${loc.longitude}`:' No location was shared with this alert.';
  const companion=incident.companion_url?` Private journey link: ${incident.companion_url}`:'';
- return 'SheShield SOS: Your contact '+(incident.trigger==='TIMEOUT'?(incident.check_in_kind==='DEVIATION'?'missed a safety check-in after moving away from their planned route.':'missed a safety check-in.'):'requested help.')+locationText+companion+' Please call your contact. SMS delivery does not confirm they are safe.';
+ return 'Waymate SOS: Your contact '+(incident.trigger==='TIMEOUT'?(incident.check_in_kind==='DEVIATION'?'missed a safety check-in after moving away from their planned route.':'missed a safety check-in.'):'requested help.')+locationText+companion+' Please call your contact. SMS delivery does not confirm they are safe.';
 }

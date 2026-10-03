@@ -48,21 +48,29 @@ export async function routeLive(origin,destination,key,options={},request=fetchJ
   const body={coordinates:options.via?[origin,options.via,destination]:[origin,destination],instructions:true};
   if(!options.via)body.alternative_routes={target_count:3,share_factor:.8,weight_factor:1.6};
   if(options.avoid_polygons)body.options={avoid_polygons:options.avoid_polygons};
-  const calculate=payload=>request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(payload)},12000,{singleAttempt:true});
-  let response;
-  try{response=await calculate(body);}
+  const calculate=(payload,timeout)=>request('https://api.openrouteservice.org/v2/directions/foot-walking/geojson',{method:'POST',headers:{Authorization:key,'Content-Type':'application/json'},body:JSON.stringify(payload)},timeout,{singleAttempt:true});
+  const transient=e=>e.code==='PROVIDER_UNAVAILABLE'||/^Provider returned HTTP (502|503|504)\./.test(e.message);
+  let response,reduced=false;
+  try{response=await calculate(body,10000);}
   catch(e){
     // Alternative-route calculation is substantially more expensive. Recover with a
     // single real walking route, keeping the exact endpoints, via point and avoidances.
     // Quota, credential and invalid-input errors cannot be fixed by another request.
-    if(e.code!=='PROVIDER_UNAVAILABLE'&&!/^Provider returned HTTP (502|503|504)\./.test(e.message))throw e;
-    const simpler={...body};delete simpler.alternative_routes;
-    console.warn(JSON.stringify({event:'walking_route_recovery',code:e.code,single_route:!options.via}));
-    try{response=await calculate(simpler);}
-    catch(recovery){if(recovery.code==='PROVIDER_UNAVAILABLE')throw new ApiError('PROVIDER_UNAVAILABLE','The walking route service did not respond after retrying. Try again shortly.',503,true);throw recovery;}
+    if(!transient(e))throw e;
+    const lighter={...body,...(!options.via?{alternative_routes:{target_count:2,share_factor:.9,weight_factor:1.6}}:{})};
+    console.warn(JSON.stringify({event:'walking_route_recovery',code:e.code,phase:'lighter_alternatives'}));
+    try{response=await calculate(lighter,8000);}
+    catch(recovery){
+      if(!transient(recovery))throw recovery;
+      if(options.via)throw new ApiError('PROVIDER_UNAVAILABLE','The walking route service did not respond after retrying. Try again shortly.',503,true);
+      const simpler={...body};delete simpler.alternative_routes;reduced=true;
+      console.warn(JSON.stringify({event:'walking_route_recovery',code:recovery.code,phase:'single_route'}));
+      try{response=await calculate(simpler,8000);}
+      catch(last){if(last.code==='PROVIDER_UNAVAILABLE')throw new ApiError('PROVIDER_UNAVAILABLE','The walking route service did not respond after retrying. Try again shortly.',503,true);throw last;}
+    }
   }
   const routes=parseOrs(response,origin,destination);if(!routes.length)throw new ApiError('NO_ROUTES','No walking route found. Choose another destination.',422);
-  return routes;
+  return routes.map(r=>({...r,alternatives_status:reduced?'TEMPORARILY_UNAVAILABLE':routes.length>1?'AVAILABLE':'ONLY_ONE_FOUND'}));
 }
 export async function searchPlaces(q,key,request=fetchJson) {
   if(q.length<3)return [];
@@ -80,7 +88,7 @@ export async function searchPlaces(q,key,request=fetchJson) {
   let body;
   try{
     if(request===fetchJson)await fallbackSlot();
-    body=await request(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&viewbox=88.15,22.80,88.60,22.35&bounded=1&limit=6&q=${encodeURIComponent(q)}`,{headers:{'User-Agent':'SheShield/2.0 (Kolkata journey companion)'}},8000,{singleAttempt:true});
+    body=await request(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&viewbox=88.15,22.80,88.60,22.35&bounded=1&limit=6&q=${encodeURIComponent(q)}`,{headers:{'User-Agent':'Waymate/2.0 (Kolkata journey companion)'}},8000,{singleAttempt:true});
   }catch(e){
     if(e.code==='RATE_LIMITED')throw e;
     throw new ApiError('SEARCH_UNAVAILABLE','Place search is temporarily unavailable. Try again shortly or choose the destination on the map.',503,true);

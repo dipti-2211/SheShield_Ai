@@ -28,7 +28,7 @@
             android:id="@+id/tv_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="SheShield"
+            android:text="Waymate"
             android:textSize="32sp"
             android:textStyle="bold"
             android:textColor="@color/on_surface"
@@ -79,7 +79,7 @@
         <!-- Plan trip -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_plan_trip"
-            style="@style/Widget.SheShield.PrimaryButton"
+            style="@style/Widget.Waymate.PrimaryButton"
             android:layout_width="0dp"
             android:layout_height="64dp"
             android:text="@string/btn_plan_trip"
@@ -109,7 +109,7 @@
         <!-- SOS button -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_sos"
-            style="@style/Widget.SheShield.SosButton"
+            style="@style/Widget.Waymate.SosButton"
             android:layout_width="0dp"
             android:layout_height="72dp"
             android:text="🆘  SOS"

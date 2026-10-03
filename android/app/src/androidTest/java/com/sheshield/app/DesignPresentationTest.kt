@@ -16,7 +16,7 @@ class DesignPresentationTest {
     @Test fun dialogsAndSheetsRenderInBothAppearances(){
         ActivityScenario.launch(MainActivity::class.java).use{scenario->scenario.onActivity{activity->
             for(night in listOf(Configuration.UI_MODE_NIGHT_NO,Configuration.UI_MODE_NIGHT_YES)){
-                val context=ContextThemeWrapper(activity,R.style.Theme_SheShield)
+                val context=ContextThemeWrapper(activity,R.style.Theme_Waymate)
                 context.applyOverrideConfiguration(Configuration(activity.resources.configuration).apply{uiMode=(uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or night})
                 val message=Ui.dialog(context).setTitle("Connection unavailable").setMessage("Check your connection and try again.").setPositiveButton("OK",null).show()
                 assertTrue(message.isShowing);assertNotNull(message.getButton(-1));message.dismiss()

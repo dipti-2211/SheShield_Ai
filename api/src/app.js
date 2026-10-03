@@ -6,6 +6,8 @@ import {validPoint,segmentDistanceKm} from './risk.js';
 import {auditDataset,assessRoute,labelRoutes} from './evidence.js';
 import {ApiError,routeLive,searchPlaces} from './providers.js';
 import {walkingRouteCache} from './route_cache.js';
+import {locationAddressResolver} from './location_address.js';
+import {batteryHeartbeat,batterySmsMessage,BATTERY_POLICY} from './battery_watch.js';
 import {freshOrigin,pointAhead,avoidancePolygon,avoidsAreas,differentAhead} from './rerouting.js';
 import {voiceAlertMessage,smsAlertMessage} from './alert_messages.js';
 import {deliveryAvailability,trialRecipientRegistry} from './delivery.js';
@@ -26,6 +28,20 @@ export function buildApp(options={}) {
  const config={...process.env,...options.config},store=options.store||new Store(config.DATABASE_PATH||(options.disableWorker?':memory:':'./data/sheshield.sqlite')),now=options.now||Date.now;
  const app=Fastify({logger:false,bodyLimit:256*1024,trustProxy:false});
  const walkingRoutes=walkingRouteCache(options.routeLive||routeLive,now);walkingRoutes.seed(store.list('plan'));
+ const resolveAddress=options.locationResolver||(options.disableWorker?async()=>null:locationAddressResolver(config.ORS_API_KEY));
+ function warmAddress(kind,key,loc){if(!loc||loc.address)return;void resolveAddress(loc).then(address=>{
+  if(!address)return;const record=store.get(kind,key);if(!record)return;
+  const matches=p=>p&&p.latitude===loc.latitude&&p.longitude===loc.longitude&&p.timestamp_ms===loc.timestamp_ms;
+  if(kind==='sos'&&matches(record.location)){record.location.address=address;store.put(kind,record);}
+  if(kind==='trip'){
+   if(matches(record.last_location))record.last_location.address=address;
+   if(matches(record.battery_watch?.location))record.battery_watch.location.address=address;
+   store.put(kind,record);
+  }
+ }).catch(()=>{});}
+ function activeBatterySms(sms){const trip=store.get('trip',sms.trip_id);return trip&&!terminal.has(trip.state)&&trip.battery_watch?.state==='ALERTED'&&trip.battery_watch.alert_id===sms.alert_id;}
+ function activeBatteryDemoSms(sms){const demo=store.get('battery_demo',sms.demo_id);return demo?.deliver_sms&&demo.state==='ALERTED'&&demo.expires_at_ms>now();}
+ function cancelBatterySms(trip){for(const sms of store.list('sms_attempt',trip.owner))if(sms.purpose==='BATTERY'&&sms.trip_id===trip.id&&sms.status==='QUEUED'){sms.status='CANCELLED';sms.updated_at_ms=now();store.put('sms_attempt',sms);}}
  const recipients=trialRecipientRegistry(config,{fetcher:options.verificationFetch||fetch,now});
  app.addHook('onReady',()=>recipients.refresh());
  const scenario=options.scenario||JSON.parse(readFileSync(config.DEMO_PATH||new URL('../../demo/kolkata_scenario.json',import.meta.url)));
@@ -73,7 +89,7 @@ export function buildApp(options={}) {
   store.put('sos',incident);
  }
  function updateSms(sms,status,providerId){
-  const incident=sms.purpose==='COMPANION'?null:store.get('sos',sms.incident_id);if(!incident&&sms.purpose!=='COMPANION')return;
+  const incident=['COMPANION','BATTERY','BATTERY_DEMO'].includes(sms.purpose)?null:store.get('sos',sms.incident_id);if(!incident&&!['COMPANION','BATTERY','BATTERY_DEMO'].includes(sms.purpose))return;
   if(providerId&&sms.provider_id&&sms.provider_id!==providerId)throw new ApiError('INVALID_CALLBACK','Unknown message.',400);
   const final=new Set(['DELIVERED','UNDELIVERED','FAILED','CANCELLED']);
   if(final.has(sms.status)||sms.status===status)return;
@@ -99,12 +115,12 @@ export function buildApp(options={}) {
   if(t?.sos_id)return owned('sos',t.sos_id,owner);
   const mode=t?.mode||b.mode;const existing=!t&&store.list('sos',owner).find(s=>!s.trip_id&&s.mode===mode&&!s.cancelled&&['REQUESTED','CONTACTING','PENDING','REQUEST_UNKNOWN'].includes(s.status)&&now()-s.created_at_ms<300000);if(existing)return existing;if(!['LIVE','REHEARSAL'].includes(mode))throw new ApiError('INVALID_MODE','Choose live or rehearsal mode.');
   const list=mode==='REHEARSAL'?[{name:'Aditi (demo)',phone:'+910000000001'},{name:'Riya (demo)',phone:'+910000000002'}]:contacts(t?.contacts||b.contacts||[]);
-  const loc=b.location||t?.last_location||null;if(loc)location(loc);
+  const loc=b.location?{latitude:b.location.latitude,longitude:b.location.longitude,accuracy:b.location.accuracy??b.location.accuracy_meters,timestamp_ms:b.location.timestamp_ms}:t?.last_location||null;if(loc)location(loc);
   const incident={id:id(),owner,trip_id:t?.id||null,mode,trigger:b.trigger==='TIMEOUT'?'TIMEOUT':'MANUAL',check_in_kind:b.trigger==='TIMEOUT'?(t?.check_in?.kind||(t?.departure_protection?.enabled&&b.check_in_kind==='DEVIATION'?'DEVIATION':null)):null,location:loc,contacts:list,status:'REQUESTED',cancelled:false,attempt_ids:[],timeline:[],created_at_ms:now(),updated_at_ms:now()};
   if(mode==='LIVE'&&t&&list.length&&config.PUBLIC_BASE_URL?.startsWith('https://')){const token=randomBytes(24).toString('hex');store.put('share',{id:digest(token),owner,trip_id:t.id,expires_at_ms:now()+7200000,purpose:'ALERT'});incident.companion_url=`${config.PUBLIC_BASE_URL.replace(/\/$/,'')}/share/${token}`;}
   addTimeline(incident,'REQUESTED',mode==='REHEARSAL'?'Rehearsal alert created. No real messages or calls.':'SOS saved. Preparing available contact channels.');
   if(!list.length){incident.status='NO_CONTACTS';addTimeline(incident,'NO_CONTACTS','No trusted contacts configured. The emergency dialer is available.');}
-  store.put('sos',incident);if(t){t.state='SOS_ACTIVE';t.sos_id=incident.id;if(t.check_in)t.check_in.status='SOS';saveTrip(t);}if(list.length)createAttempt(incident);createSmsAttempts(incident);return incident;
+  store.put('sos',incident);warmAddress('sos',incident.id,loc);if(t){t.state='SOS_ACTIVE';t.sos_id=incident.id;if(t.check_in)t.check_in.status='SOS';saveTrip(t);}if(list.length)createAttempt(incident);createSmsAttempts(incident);return incident;
  }
  function updateAttempt(attempt,status,providerId){
   const incident=store.get('sos',attempt.incident_id);if(!incident)return;
@@ -170,8 +186,38 @@ export function buildApp(options={}) {
  }));
  app.post('/v1/trips/:id/locations',{preHandler:auth},async(req)=>{
   const t=activeTrip(req.params.id,req.owner),b=req.body||{},loc=location(b);if(!Number.isFinite(b.timestamp_ms)||b.timestamp_ms>now()+60000||b.timestamp_ms<now()-600000||!Number.isInteger(b.sequence)||!Number.isFinite(b.accuracy_meters)||b.accuracy_meters<0||b.accuracy_meters>10000)throw new ApiError('INVALID_FIX','Location is stale or invalid.');
-  if(b.sequence>t.last_sequence){t.last_sequence=b.sequence;t.last_location=loc;saveTrip(t);}return t;
+  if(b.sequence>t.last_sequence){
+   t.last_sequence=b.sequence;t.last_location={latitude:loc.latitude,longitude:loc.longitude,accuracy:loc.accuracy??loc.accuracy_meters,timestamp_ms:loc.timestamp_ms,sequence:loc.sequence};
+   // A fresh GPS upload proves the phone is still reporting. Queued old fixes do not.
+   if(t.battery_watch&&Math.abs(now()-b.timestamp_ms)<=60000){
+    const watch=t.battery_watch;watch.location=t.last_location;
+    if(watch.state==='ARMED'){watch.last_seen_at_ms=now();watch.deadline_ms=now()+BATTERY_POLICY.silence_ms;}
+    else if(watch.state==='ALERTED'){watch.state='RECOVERED';watch.deadline_ms=null;cancelBatterySms(t);}
+   }
+   saveTrip(t);warmAddress('trip',t.id,t.last_location);
+  }return t;
  });
+ app.post('/v1/trips/:id/battery',{preHandler:auth},async req=>{
+  const t=activeTrip(req.params.id,req.owner);if(t.mode!=='LIVE')throw new ApiError('PRACTICE_ONLY','Use the battery demo for a practice journey.',409);
+  const previous={...t.battery_watch,location:t.battery_watch?.location||t.last_location||null};
+  t.battery_watch=batteryHeartbeat(previous,req.body,now());
+  if(t.battery_watch.state!=='ALERTED')cancelBatterySms(t);
+  saveTrip(t);warmAddress('trip',t.id,t.battery_watch.location);
+  return {...t.battery_watch,policy:BATTERY_POLICY,sms_attempts:(t.battery_watch.sms_attempt_ids||[]).map(k=>store.get('sms_attempt',k)).filter(Boolean).map(s=>({id:s.id,contact:s.contact,status:s.status}))};
+ });
+ app.get('/v1/trips/:id/battery',{preHandler:auth},async req=>{
+  const t=owned('trip',req.params.id,req.owner);return {...(t.battery_watch||{state:'NOT_REGISTERED'}),policy:BATTERY_POLICY,sms_attempts:(t.battery_watch?.sms_attempt_ids||[]).map(k=>store.get('sms_attempt',k)).filter(Boolean).map(s=>({id:s.id,contact:s.contact,status:s.status}))};
+ });
+ app.post('/v1/battery-demo',{preHandler:auth},async req=>{
+  const recipients=contacts(req.body?.contacts||[]),deliver=req.body?.deliver_sms===true,active=store.list('battery_demo',req.owner).find(d=>d.state==='ARMED'&&d.deadline_ms>now());
+  if(deliver&&(recipients.length!==1||!smsConfigured(recipients[0])))throw new ApiError('SMS_UNAVAILABLE','Choose one Circle recipient configured for cloud SMS.',409);
+  if(active){if(Boolean(active.deliver_sms)!==deliver||deliver&&active.contacts[0].phone!==recipients[0].phone)throw new ApiError('DEMO_ALREADY_RUNNING','Close the current battery demo before starting another.',409);return {...active,server_now_ms:now()};}
+  if(deliver&&store.list('battery_demo',req.owner).some(d=>d.deliver_sms&&now()-d.created_at_ms<60000))throw new ApiError('RATE_LIMITED','Wait a minute before sending another demo SMS.',429,true);
+  const demo={id:id(),owner:req.owner,mode:'REHEARSAL',deliver_sms:deliver,created_at_ms:now(),state:'ARMED',percent:5,last_seen_at_ms:now(),deadline_ms:now()+20000,expires_at_ms:now()+300000,location:{latitude:scenario.origin.latitude,longitude:scenario.origin.longitude,timestamp_ms:now(),accuracy:5,address:scenario.origin.label},contacts:recipients.length?recipients:[{name:'Demo companion',phone:'+910000000001'}],sms_attempts:[]};
+  return {...store.put('battery_demo',demo),server_now_ms:now()};
+ });
+ app.get('/v1/battery-demo/:id',{preHandler:auth},async req=>{const demo=owned('battery_demo',req.params.id,req.owner);return {...demo,server_now_ms:now(),sms_attempts:demo.deliver_sms?demo.sms_attempts.map(s=>store.get('sms_attempt',s.id)||s):demo.sms_attempts};});
+ app.delete('/v1/battery-demo/:id',{preHandler:auth},async req=>{const d=owned('battery_demo',req.params.id,req.owner);d.state='CANCELLED';store.put('battery_demo',d);return {status:'CANCELLED'};});
  app.post('/v1/trips/:id/check-ins',{preHandler:auth},async req=>command(req,()=>{
   const t=activeTrip(req.params.id,req.owner),b=req.body||{};
   if(t.state==='SOS_ACTIVE')throw new ApiError('SOS_ACTIVE','An SOS incident is already active.',409);
@@ -208,7 +254,7 @@ export function buildApp(options={}) {
  }));
  app.post('/v1/trips/:id/end',{preHandler:auth},async req=>command(req,()=>{
   const t=owned('trip',req.params.id,req.owner);if(terminal.has(t.state))return t;
-  if(t.sos_id)cancelIncident(owned('sos',t.sos_id,req.owner));t.state=req.body?.cancelled?'CANCELLED':'COMPLETED';t.ended_at_ms=now();if(t.check_in?.status==='PENDING')t.check_in.status='CANCELLED';return saveTrip(t);
+  if(t.sos_id)cancelIncident(owned('sos',t.sos_id,req.owner));cancelBatterySms(t);if(t.battery_watch){t.battery_watch.state='OFF';t.battery_watch.deadline_ms=null;}t.state=req.body?.cancelled?'CANCELLED':'COMPLETED';t.ended_at_ms=now();if(t.check_in?.status==='PENDING')t.check_in.status='CANCELLED';return saveTrip(t);
  }));
  app.delete('/v1/trips/:id',{preHandler:auth},async req=>{const t=owned('trip',req.params.id,req.owner);if(!terminal.has(t.state))throw new ApiError('TRIP_ACTIVE','End this journey before deleting it.',409);store.remove('trip',t.id);return {status:'DELETED'};});
  app.post('/v1/trips/:id/nearby',{preHandler:auth},async req=>{
@@ -256,23 +302,28 @@ export function buildApp(options={}) {
  app.post('/v1/sos/:id/cancel',{preHandler:auth},async req=>command(req,()=>{
   const s=cancelIncident(owned('sos',req.params.id,req.owner));if(s.trip_id){const t=store.get('trip',s.trip_id);if(t&&!terminal.has(t.state)){t.state='ACTIVE';t.sos_id=null;saveTrip(t);}}return presentSos(s);
  }));
- app.post('/internal/attempts/:id/claim',{preHandler:worker},async req=>store.transaction(()=>{
+ app.post('/internal/attempts/:id/claim',{preHandler:worker},async req=>{
+  const attempt=store.get('attempt',req.params.id),incident=attempt&&store.get('sos',attempt.incident_id);
+  if(attempt?.mode==='LIVE'&&attempt.status==='DISPATCHING'&&incident?.location&&!incident.location.address){const address=await resolveAddress(incident.location);if(address){const latest=store.get('sos',incident.id);latest.location.address=address;store.put('sos',latest);}}
+  return store.transaction(()=>{
   const a=store.get('attempt',req.params.id);if(!a||a.mode!=='LIVE'||a.status!=='DISPATCHING')throw new ApiError('ALREADY_CLAIMED','This attempt is unavailable or already claimed.',409);
   const s=store.get('sos',a.incident_id);if(s.cancelled)throw new ApiError('CANCELLED','This alert was cancelled.',409);a.status='REQUESTED';store.put('attempt',a);
   const base=config.PUBLIC_BASE_URL.replace(/\/$/,'');
   return {attempt_id:a.id,to:a.contact.phone,message:voiceAlertMessage(s,now()),callback_url:`${base}/v1/provider/twilio/status?attempt_id=${a.id}`,ack_url:`${base}/v1/provider/twilio/ack?attempt_id=${a.id}`};
- }));
+ });});
  app.post('/internal/attempts/:id/result',{preHandler:worker},async req=>{const a=store.get('attempt',req.params.id);if(!a)throw new ApiError('NOT_FOUND','Attempt missing.',404);updateAttempt(a,req.body?.call_sid?'REQUESTED':req.body?.outcome_unknown?'REQUEST_UNKNOWN':'FAILED',req.body?.call_sid);return {status:'ok'};});
  app.post('/internal/sms/:id/claim',{preHandler:worker},async req=>store.transaction(()=>{
   const sms=store.get('sms_attempt',req.params.id);if(!sms||sms.status!=='DISPATCHING')throw new ApiError('ALREADY_CLAIMED','This SMS is unavailable or already claimed.',409);
   if(!smsConfigured(sms.contact))throw new ApiError('DELIVERY_DISABLED','Cloud SMS is disabled or unavailable for this contact.',409);
-  const incident=sms.purpose==='COMPANION'?null:store.get('sos',sms.incident_id);
+  const incident=['COMPANION','BATTERY','BATTERY_DEMO'].includes(sms.purpose)?null:store.get('sos',sms.incident_id);
   if(sms.purpose==='COMPANION'){
     const trip=store.get('trip',sms.trip_id),link=store.get('share',sms.share_id);
     if(!trip||terminal.has(trip.state)||!link||link.expires_at_ms<=now())throw new ApiError('CANCELLED','This journey link is closed.',409);
-  }else if(!incident||incident.cancelled)throw new ApiError('CANCELLED','This alert was cancelled.',409);
+  }else if(sms.purpose==='BATTERY'){if(!activeBatterySms(sms))throw new ApiError('CANCELLED','The phone reconnected or this battery watch ended.',409);}
+  else if(sms.purpose==='BATTERY_DEMO'){if(!activeBatteryDemoSms(sms))throw new ApiError('CANCELLED','The battery demo was closed or expired.',409);}
+  else if(!incident||incident.cancelled)throw new ApiError('CANCELLED','This alert was cancelled.',409);
   sms.status='REQUESTED';store.put('sms_attempt',sms);
-  return {attempt_id:sms.id,to:sms.contact.phone,message:sms.purpose==='COMPANION'?sms.message:smsAlertMessage(incident),callback_url:`${config.PUBLIC_BASE_URL.replace(/\/$/,'')}/v1/provider/twilio/sms-status?attempt_id=${sms.id}`};
+  return {attempt_id:sms.id,to:sms.contact.phone,message:['COMPANION','BATTERY','BATTERY_DEMO'].includes(sms.purpose)?sms.message:smsAlertMessage(incident),callback_url:`${config.PUBLIC_BASE_URL.replace(/\/$/,'')}/v1/provider/twilio/sms-status?attempt_id=${sms.id}`};
  }));
  app.post('/internal/sms/:id/result',{preHandler:worker},async req=>{
   const sms=store.get('sms_attempt',req.params.id);if(!sms)throw new ApiError('NOT_FOUND','SMS attempt missing.',404);
@@ -291,7 +342,7 @@ export function buildApp(options={}) {
    const token=randomBytes(24).toString('hex'),shareId=digest(token),expires=now()+7200000;
    store.put('share',{id:shareId,owner:req.owner,trip_id:trip.id,expires_at_ms:expires,purpose:'COMPANION_SMS'});
    const sms={id:id(),owner:req.owner,purpose:'COMPANION',trip_id:trip.id,share_id:shareId,contact:recipient,mode:'LIVE',status:'QUEUED',provider_id:null,created_at_ms:now(),updated_at_ms:now(),
-     message:`SheShield: Your contact invited you to follow their journey. Private link: ${config.PUBLIC_BASE_URL.replace(/\/$/,'')}/share/${token} Keep this link private. It closes when the journey ends. Acknowledging a check-in does not confirm they are safe.`};
+     message:`Waymate: Your contact invited you to follow their journey. Private link: ${config.PUBLIC_BASE_URL.replace(/\/$/,'')}/share/${token} Keep this link private. It closes when the journey ends. Acknowledging a check-in does not confirm they are safe.`};
    store.put('sms_attempt',sms);return {id:sms.id,contact:recipient,status:sms.status};
  }));
  app.get('/v1/companion-sms/:id',{preHandler:auth},async req=>{const sms=owned('sms_attempt',req.params.id,req.owner);if(sms.purpose!=='COMPANION')throw new ApiError('NOT_FOUND','Companion message not found.',404);return {id:sms.id,contact:sms.contact,status:sms.status};});
@@ -340,6 +391,22 @@ export function buildApp(options={}) {
  async function tick(){
   // Refresh in the background so provider outages never delay a check-in deadline.
   void recipients.refresh();
+  for(const t of store.list('trip'))if(!terminal.has(t.state)&&t.mode==='LIVE'&&t.battery_watch?.state==='ARMED'&&t.battery_watch.deadline_ms<=now())store.transaction(()=>{
+   const watch=t.battery_watch;if(t.last_location&&(!watch.location||t.last_location.timestamp_ms>watch.location.timestamp_ms))watch.location=t.last_location;
+   watch.state='ALERTED';watch.alerted_at_ms=now();watch.alert_id=id();watch.sms_attempt_ids=[];
+   for(const contact of t.contacts){const ready=smsConfigured(contact),sms={id:id(),owner:t.owner,purpose:'BATTERY',trip_id:t.id,alert_id:watch.alert_id,contact,mode:'LIVE',status:ready?'QUEUED':'UNAVAILABLE',unavailable_reason:ready?null:deliveryAvailability(config,contact).sms_reason,provider_id:null,message:batterySmsMessage(watch,now()),created_at_ms:now(),updated_at_ms:now()};watch.sms_attempt_ids.push(sms.id);store.put('sms_attempt',sms);}
+   saveTrip(t);
+  });
+  for(const demo of store.list('battery_demo')){
+   if(demo.expires_at_ms<=now()){store.remove('battery_demo',demo.id);continue;}
+   if(demo.state==='ARMED'&&demo.deadline_ms<=now()){
+    demo.state='ALERTED';demo.message=batterySmsMessage(demo,now(),true);
+    demo.sms_attempts=demo.contacts.map(contact=>{
+     if(!demo.deliver_sms)return {contact,status:'SIMULATED',message:demo.message};
+     const ready=smsConfigured(contact),sms={id:id(),owner:demo.owner,purpose:'BATTERY_DEMO',demo_id:demo.id,contact,mode:'LIVE',status:ready?'QUEUED':'UNAVAILABLE',message:demo.message,provider_id:null,created_at_ms:now(),updated_at_ms:now()};store.put('sms_attempt',sms);return {id:sms.id,contact,status:sms.status};
+    });store.put('battery_demo',demo);
+   }
+  }
   for(const t of store.list('trip'))if(t.state==='CHECK_IN_PENDING'&&t.check_in?.status==='PENDING'&&t.check_in.deadline_ms<=now())store.transaction(()=>createSos(t.owner,{trip_id:t.id,trigger:'TIMEOUT'}));
   for(const a of store.list('attempt')){
    if(a.mode==='LIVE'&&a.status==='DISPATCHING'&&now()-a.updated_at_ms>60000){updateAttempt(a,'REQUEST_UNKNOWN');continue;}
@@ -356,9 +423,9 @@ export function buildApp(options={}) {
   for(const sms of store.list('sms_attempt')){
    if(sms.status==='DISPATCHING'&&now()-sms.updated_at_ms>60000){updateSms(sms,'REQUEST_UNKNOWN');continue;}
    if(sms.status!=='QUEUED')continue;
-   const incident=sms.purpose==='COMPANION'?null:store.get('sos',sms.incident_id);
+   const incident=['COMPANION','BATTERY','BATTERY_DEMO'].includes(sms.purpose)?null:store.get('sos',sms.incident_id);
    const trip=sms.purpose==='COMPANION'?store.get('trip',sms.trip_id):null,share=sms.purpose==='COMPANION'?store.get('share',sms.share_id):null;
-   if(sms.purpose==='COMPANION'?(!trip||terminal.has(trip.state)||!share||share.expires_at_ms<=now()):(!incident||incident.cancelled)){sms.status='CANCELLED';store.put('sms_attempt',sms);continue;}
+   if(sms.purpose==='COMPANION'?(!trip||terminal.has(trip.state)||!share||share.expires_at_ms<=now()):sms.purpose==='BATTERY'?!activeBatterySms(sms):sms.purpose==='BATTERY_DEMO'?!activeBatteryDemoSms(sms):(!incident||incident.cancelled)){sms.status='CANCELLED';store.put('sms_attempt',sms);continue;}
    if(!smsConfigured(sms.contact)){updateSms(sms,'UNAVAILABLE');continue;}
    sms.status='DISPATCHING';sms.updated_at_ms=now();store.put('sms_attempt',sms);
    try{const response=await (options.dispatch||fetch)(config.N8N_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json','X-Worker-Token':config.WORKER_TOKEN},body:JSON.stringify({channel:'SMS',attempt_id:sms.id,api_base_url:config.PUBLIC_BASE_URL}),signal:AbortSignal.timeout(15000)});if(!response.ok)updateSms(store.get('sms_attempt',sms.id),'FAILED');}

@@ -20,7 +20,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="SheShield will analyse reported-crime exposure for each route alternative."
+        android:text="Waymate will analyse reported-crime exposure for each route alternative."
         android:textSize="13sp"
         android:textColor="@color/on_surface_secondary"
         android:layout_marginBottom="24dp" />
@@ -52,7 +52,7 @@
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_find_routes"
-        style="@style/Widget.SheShield.PrimaryButton"
+        style="@style/Widget.Waymate.PrimaryButton"
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:text="@string/btn_find_routes"

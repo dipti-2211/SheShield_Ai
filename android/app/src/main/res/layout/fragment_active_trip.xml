@@ -55,7 +55,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_sos"
-            style="@style/Widget.SheShield.SosButton"
+            style="@style/Widget.Waymate.SosButton"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:text="🆘  SOS"
@@ -97,7 +97,7 @@ Are you safe?"
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_im_safe"
-            style="@style/Widget.SheShield.PrimaryButton"
+            style="@style/Widget.Waymate.PrimaryButton"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:text="@string/btn_im_safe"
@@ -106,7 +106,7 @@ Are you safe?"
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_sos_checkin"
-            style="@style/Widget.SheShield.SosButton"
+            style="@style/Widget.Waymate.SosButton"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:text="🆘  Trigger SOS"

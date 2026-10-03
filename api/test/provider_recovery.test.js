@@ -43,13 +43,21 @@ test('walking routes request a single bounded calculation before simplifying rec
     captured={timeout,recovery};
     return {features:[{geometry:{type:'LineString',coordinates:[[88.35,22.56],[88.35,22.57]]},properties:{summary:{distance:1200,duration:800}}}]};
   });
-  assert.equal(captured.timeout,12000);assert.deepEqual(captured.recovery,{singleAttempt:true});
+  assert.equal(captured.timeout,10000);assert.deepEqual(captured.recovery,{singleAttempt:true});
 });
-test('walking timeout retries without alternatives while preserving every avoidance and endpoint',async()=>{
+test('walking timeout tries lighter alternatives while preserving every avoidance and endpoint',async()=>{
  const requests=[],origin=[88.35,22.56],destination=[88.35,22.57],avoid={type:'Polygon',coordinates:[[[88.36,22.56],[88.37,22.56],[88.36,22.57],[88.36,22.56]]]};
  const routes=await routeLive(origin,destination,'key',{avoid_polygons:avoid},async(url,options,timeout)=>{
   requests.push({body:JSON.parse(options.body),timeout});if(requests.length===1){const e=new Error('timeout');e.code='PROVIDER_UNAVAILABLE';throw e;}
   return {features:[{geometry:{type:'LineString',coordinates:[origin,destination]},properties:{summary:{distance:1200,duration:800}}}]};
  });
- assert.equal(routes.length,1);assert.ok(requests[0].body.alternative_routes);assert.equal(requests[1].body.alternative_routes,undefined);assert.deepEqual(requests[1].body.coordinates,[origin,destination]);assert.deepEqual(requests[1].body.options.avoid_polygons,avoid);assert.equal(requests.reduce((n,r)=>n+r.timeout,0),24000);
+ assert.equal(routes.length,1);assert.equal(requests[0].body.alternative_routes.target_count,3);assert.equal(requests[1].body.alternative_routes.target_count,2);assert.deepEqual(requests[1].body.coordinates,[origin,destination]);assert.deepEqual(requests[1].body.options.avoid_polygons,avoid);assert.equal(requests.reduce((n,r)=>n+r.timeout,0),18000);
+});
+test('single-route recovery happens only after both alternative calculations fail and is explicitly labeled',async()=>{
+ const requests=[],origin=[88.35,22.56],destination=[88.35,22.57];
+ const routes=await routeLive(origin,destination,'key',{},async(url,options,timeout)=>{
+  requests.push({body:JSON.parse(options.body),timeout});if(requests.length<3){const e=new Error('timeout');e.code='PROVIDER_UNAVAILABLE';throw e;}
+  return {features:[{geometry:{type:'LineString',coordinates:[origin,destination]},properties:{summary:{distance:1200,duration:800}}}]};
+ });
+ assert.equal(requests.length,3);assert.equal(requests[2].body.alternative_routes,undefined);assert.equal(routes[0].alternatives_status,'TEMPORARILY_UNAVAILABLE');assert.equal(requests.reduce((n,r)=>n+r.timeout,0),26000);
 });

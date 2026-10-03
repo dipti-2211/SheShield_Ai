@@ -20,7 +20,7 @@ object SmsHelper {
         val prefs=context.getSharedPreferences("sms_status",Context.MODE_PRIVATE)
         if(ContextCompat.checkSelfPermission(context,Manifest.permission.SEND_SMS)!=PackageManager.PERMISSION_GRANTED){phones.forEach{prefs.edit().putString(key(incident,it),"Permission unavailable").apply()};return}
         val manager=context.getSystemService(SmsManager::class.java)?:return
-        val message="SheShield SOS: I may need help. "+if(location!=null)"Last recorded location: https://maps.google.com/?q=${location.latitude},${location.longitude} at ${java.util.Date(location.timestampMs)}" else "My location is unavailable. Please contact me."
+        val message="Waymate SOS: I may need help. "+if(location!=null)"Last recorded location: https://maps.google.com/?q=${location.latitude},${location.longitude} at ${java.util.Date(location.timestampMs)}" else "My location is unavailable. Please contact me."
         for(phone in phones){
             val source=context.getSharedPreferences("sheshield_prefs",Context.MODE_PRIVATE).getString("sms_incident:$incident",incident)?:incident
             val statusKey=key(source,phone);if(prefs.contains(statusKey))continue

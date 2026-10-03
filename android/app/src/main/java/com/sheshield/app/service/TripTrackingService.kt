@@ -72,6 +72,11 @@ class TripTrackingService:LifecycleService() {
                     if(current.checkInDeadlineMs>0&&System.currentTimeMillis()>=current.checkInDeadlineMs)triggerSos("TIMEOUT")
                 }
                 if(ticks%15==0)launch(Dispatchers.IO){repo.sync()}
+                if(!current.isRehearsal&&ticks%30==0)launch(Dispatchers.IO){
+                    BatteryReading.current(this@TripTrackingService)?.let{reading->
+                        try{repo.sendBatteryHeartbeat(reading)}catch(e:CancellationException){throw e}catch(_:Exception){/* Keep the server's last accepted heartbeat; retry with a new reading. */}
+                    }
+                }
                 if(ticks%5==0)NotificationHelper.updateTrip(this@TripTrackingService,current,status(current))
                 ticks++;delay(1000)
             }
@@ -83,6 +88,7 @@ class TripTrackingService:LifecycleService() {
         t.state==TripState.CHECK_IN_PENDING->"Safety check-in pending"
         t.lastUpdateMs==0L||System.currentTimeMillis()-t.lastUpdateMs>60000->"Waiting for a fresh location"
         t.syncStatus=="OFFLINE"->"Local monitoring · server connection unavailable"
+        repo.prefs.getString("battery_state:${t.tripId}","")=="ARMED"->"Low battery watch registered on the server"
         t.isRehearsal->"Rehearsal · simulated location"
         else->"Monitoring your journey"
     }

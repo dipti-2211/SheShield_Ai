@@ -1,8 +1,8 @@
-# SheShield · Street evidence and Walk with me
+# Waymate · Street evidence and Walk with me
 
 A native Android journey companion focused on Kolkata: compare real walking routes, understand available incident evidence, monitor a journey, and request help from a trusted circle.
 
-**Start here:** open `android/` in Android Studio. The current debug APK is `artifacts/SheShield-debug.apk`. Custom routes use OpenRouteService in both practice and live modes. The explicit recorded Kolkata demo works without the API; map tiles still need internet unless already cached. Contact calls use your existing n8n Cloud account.
+**Start here:** open `android/` in Android Studio. The current debug APK is `artifacts/Waymate-debug.apk`. Custom routes use OpenRouteService in both practice and live modes. The explicit recorded Kolkata demo works without the API; map tiles still need internet unless already cached. Contact calls use your existing n8n Cloud account.
 
 ## Practicality update
 

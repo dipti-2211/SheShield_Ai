@@ -196,3 +196,27 @@ The [Kolkata expansion](../evidence/kolkata/README.md) is installed as audited i
 Final checks for this update: all **109 backend tests**, **22 Android JVM tests**, debug APK build and lint passed. The light/dark dialog/sheet instrumentation test passed on the existing emulator without clearing app data. Full logs: [backend](../artifacts/sos-navigation-api-tests.txt), [Android](../artifacts/sos-navigation-android-checks.txt). The updated debug APK is [SheShield-debug.apk](../artifacts/SheShield-debug.apk). Physical-phone walking and delivery to the other recipients remain separate checks.
 
 The native `NavigationMapTest` also passed on the emulator: a synthetic accurate fix followed the selected route with a 90° bearing, zoom 16.6 and 30° tilt. It created no journey or alert. This verifies native camera behavior; it does not substitute for a physical walking trace.
+
+## Battery protection, spoken addresses and alternatives
+
+See [battery protection and demo](BATTERY_PROTECTION.md). All **131 backend tests**, **24 Android JVM tests**, debug APK build and lint passed. Checks cover durable silence timers across a backend restart, every eligible Circle recipient, heartbeat replay, fresh versus delayed GPS uploads, charging/recovery/end, recipient restrictions, cancellation at worker claim, signed SMS callbacks, explicit demo SMS opt-in, and default demos producing no real delivery jobs.
+
+The public server demo completed after 21.7 seconds with simulated SMS only: [live result](../artifacts/battery-demo-live-check.json). The physical phone also displayed the completed demo with its two saved Circle contacts. Live reverse geocoding returned a readable Jawaharlal Nehru Road address. The public API check returned three real walking options. Real battery exhaustion and real delivery of the new battery message were not tested; the optional selected-recipient SMS demo is available in the app. Logs: [backend](../artifacts/battery-api-tests.txt), [Android](../artifacts/battery-android-build.txt).
+
+The temporary Cloudflare tunnel expired during validation and was replaced. The phone was configured for USB forwarding at `http://127.0.0.1:8787`; wireless use requires the current public URL from `PUBLIC_BASE_URL`. The backend and public tunnel must remain running for cloud delivery.
+
+### Trial SMS length fix and public phone connection
+
+Twilio's read-only record for the failed battery demo confirmed error **30044** and eight SMS segments. The long Unicode demo text was replaced by 111 ASCII characters, leaving room for the trial banner. Real battery alerts use compact text and omit an optional address from SMS when it would force Unicode encoding; the map link and full stored address remain available.
+
+An authorized live demo through the public API, n8n Cloud and Twilio delivered to the owner's verified number ending 1265 in **one segment**, with no provider error: [provider result](../artifacts/battery-sms-live-check.json). No calls were placed. All **132 backend tests**, **24 Android JVM tests**, APK build and lint passed. The latest APK was installed on the physical phone with app data preserved.
+
+The phone and new APK build default use `PUBLIC_BASE_URL` on trycloudflare. Unused USB forwarding was removed. Keep the API and public tunnel running; if that temporary tunnel expires, update the public URL. See [test results](../artifacts/battery-sms-fix-tests.txt).
+
+## Waymate branding
+
+The app label, home/welcome screens, settings, dialogs, notifications, device SMS, cloud SMS, spoken alerts and companion page now use **Waymate**. The original installed application ID and storage keys remain compatible so an APK upgrade retains sessions, contacts and journeys. Application/API source class names and resource styles were renamed consistently.
+
+The original vector W mark is applied to the home header, companion page, adaptive launcher icon, Android themed icon and notification icon. SVG and PNG assets are in [brand](../brand/README.md). The [new APK](../artifacts/Waymate-debug.apk) was installed on the physical phone without clearing data; its [home screen](../artifacts/waymate-home.png) was checked visually. The saved API still uses the public trycloudflare address.
+
+Validation: **132 backend tests**, **24 Android JVM tests**, APK build and lint passed. The companion browser checks passed after the logo change, including mobile layout and privacy after ending a journey. Logs: [backend](../artifacts/waymate-api-tests.txt), [Android](../artifacts/waymate-android-build.txt). No calls or SMS were sent for the branding checks.

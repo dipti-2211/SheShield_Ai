@@ -21,3 +21,9 @@ test('restart seed accepts only recent real unrestricted provider geometry',asyn
  get.seed([{...plan,geometry_source:'recorded demo'},{...plan,created_at_ms:0},{...plan,avoid_area_ids:['area']}]);await get([88.35,22.56],[88.35,22.57],'key');assert.equal(calls,1);
  const seeded=walkingRouteCache(async()=>{throw Error('provider offline');},()=>1000000);seeded.seed([plan]);const result=await seeded([88.35,22.56],[88.35,22.57],'key');assert.equal(result[0].decision,undefined);
 });
+test('a single fallback never replaces recent multiple routes and retry can recover missing alternatives',async()=>{
+ let calls=0;const origin=[88.35,22.56],destination=[88.35,22.57],plan={created_at_ms:999999,geometry_source:'OpenRouteService walking directions',origin:{longitude:origin[0],latitude:origin[1]},destination:{longitude:destination[0],latitude:destination[1]}};
+ const get=walkingRouteCache(async()=>{calls++;return [route];},()=>1000000);
+ get.seed([{...plan,routes:[route,{...route,route_id:'r2'}]},{...plan,routes:[{...route,alternatives_status:'TEMPORARILY_UNAVAILABLE'}]}]);assert.equal((await get(origin,destination,'key')).length,2);assert.equal(calls,0);
+ const retrying=walkingRouteCache(async()=>[route,{...route,route_id:'r2'}],()=>1000000);retrying.seed([{...plan,routes:[{...route,alternatives_status:'TEMPORARILY_UNAVAILABLE'}]}]);assert.equal((await retrying(origin,destination,'key')).length,2);
+});

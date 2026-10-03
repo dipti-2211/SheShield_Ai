@@ -52,6 +52,7 @@ class ActiveTripFragment:ScreenFragment(){
         actions.addView(Ui.button(c,"Nearby places",true){nearbyPlaces()}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f).apply{topMargin=Ui.dp(c,10)}});normal.addView(actions);normal.addView(Ui.space(c,14))
         normal.addView(Ui.rowItem(c,"Send companion link","Text someone in your Circle",R.drawable.ic_share){shareCompanion()})
         normal.addView(Ui.divider(c,64));normal.addView(Ui.rowItem(c,"Route insights","Sources and information gaps",R.drawable.ic_info){current?.route()?.let{RouteEvidenceDialog.show(c,it)}})
+        normal.addView(Ui.divider(c,64));normal.addView(Ui.rowItem(c,"Low battery protection","Server watch & last recorded position",R.drawable.ic_shield){runAction{BatteryProtection.show(c,repo,viewLifecycleOwner.lifecycleScope)}})
         normal.addView(Ui.divider(c,64));normal.addView(Ui.rowItem(c,"Finish journey",null,R.drawable.ic_check){end()})
         if(repo.demo()){val row=Ui.row(c);row.addView(Ui.button(c,"Pause / play",true){service(TripTrackingService.ACTION_PAUSE)}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f)});row.addView(Ui.button(c,"Next check-in",true){service(TripTrackingService.ACTION_SKIP)}.apply{textSize=14f;layoutParams=LinearLayout.LayoutParams(0,-2,1f)});normal.addView(row,0);demoControls=row;row.visibility=View.GONE}
         panel.addView(normal)
@@ -179,7 +180,7 @@ class ActiveTripFragment:ScreenFragment(){
             .setItems(choices){_,index->
                 val selected=choices[index]
                 val seconds=when{selected.startsWith("20")->20;selected.startsWith("2 ")->120;selected.startsWith("5 ")->300;selected.startsWith("10 ")->600;else->{val route=t.route();val remaining=route?.let{TripMath.project(LatLng(t.lastLatitude,t.lastLongitude),it).remainingMeters/it.distanceMeters}?:1.0;((route?.durationSeconds?:300)*remaining.coerceIn(0.0,1.0)+300).toInt().coerceIn(60,1800)}}
-                Ui.confirm(c,"Set a check-in?",if(t.isRehearsal)"This practice watch simulates contact escalation. No real calls or messages." else "Confirm within ${seconds/60} minutes. If you miss it, SheShield requests calls to your configured circle. Wait for confirmation that the timer is registered and calls are configured before relying on remote escalation. You can share a companion link after starting.","Start watch"){
+                Ui.confirm(c,"Set a check-in?",if(t.isRehearsal)"This practice watch simulates contact escalation. No real calls or messages." else "Confirm within ${seconds/60} minutes. If you miss it, Waymate requests calls to your configured circle. Wait for confirmation that the timer is registered and calls are configured before relying on remote escalation. You can share a companion link after starting.","Start watch"){
                     runAction{repo.armWatch(seconds);main.tripViewModel.startTracking();viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO){repo.sync()}}
                 }
             }.setNegativeButton("Cancel",null).show()

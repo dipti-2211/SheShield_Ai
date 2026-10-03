@@ -1,4 +1,4 @@
-# SheShield visual design
+# Waymate visual design
 
 An iOS-inspired hierarchy built with native Android controls: large titles, grouped rows, quiet surfaces, consistent icons, rounded sheets and generous touch targets. No proprietary Apple fonts or assets are bundled.
 

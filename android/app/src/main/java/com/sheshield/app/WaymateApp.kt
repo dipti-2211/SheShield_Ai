@@ -10,7 +10,7 @@ import com.sheshield.app.util.NotificationHelper
  * Application entry point.
  * Initialises notification channels on startup.
  */
-class SheShieldApp : Application() {
+class WaymateApp : Application() {
 
     override fun onCreate() {
         super.onCreate()

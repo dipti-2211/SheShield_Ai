@@ -17,6 +17,7 @@ class RouteComparisonFragment:ScreenFragment(){
     private var departureSeconds=120
     private lateinit var routeScroller:HorizontalScrollView
     private lateinit var endpointsLabel:TextView
+    private lateinit var alternativesNote:TextView
     private lateinit var protectionButton:com.google.android.material.button.MaterialButton
     override fun onCreateView(inflater:LayoutInflater,container:ViewGroup?,state:Bundle?):View{
         val c=requireContext();val root=Ui.col(c);root.setBackgroundColor(Ui.color(c,R.color.background))
@@ -35,6 +36,8 @@ class RouteComparisonFragment:ScreenFragment(){
         cards=Ui.row(c);cards.gravity=Gravity.TOP
         routeScroller=HorizontalScrollView(c).apply{isHorizontalScrollBarEnabled=false;clipToPadding=false;addView(cards);overScrollMode=View.OVER_SCROLL_IF_CONTENT_SCROLLS}
         panel.addView(routeScroller,LinearLayout.LayoutParams(-1,-2))
+        alternativesNote=Ui.text(c,"",13,tint=R.color.on_surface_secondary);panel.addView(alternativesNote)
+        panel.addView(Ui.rowItem(c,"Refresh walking options",null,R.drawable.ic_route){val p=plan?:return@rowItem;runAction{val updated=repo.plan(p.origin,p.destination,p.avoidAreaIds.orEmpty());plan=updated;main.planningViewModel.plan=updated;selected=updated.routes.firstOrNull();main.planningViewModel.selectedRouteId=selected?.routeId;render()}})
         panel.addView(Ui.rowItem(c,"Route insights","Sources, lighting and information gaps",R.drawable.ic_info){selected?.let{RouteEvidenceDialog.show(c,it)}})
         val panelScroll=Ui.scroll(c,panel)
         root.addView(panelScroll,LinearLayout.LayoutParams(-1,Ui.dp(c,minOf(310,maxOf(190,(resources.displayMetrics.heightPixels/resources.displayMetrics.density*.32f).toInt())))))
@@ -57,6 +60,7 @@ class RouteComparisonFragment:ScreenFragment(){
     private fun render(){val c=requireContext();val p=plan?:return;val offset=routeScroller.scrollX;cards.removeAllViews()
         endpointsLabel.text="${p.origin.label.substringBefore(',')} → ${p.destination.label.substringBefore(',')}"
         endpointsLabel.contentDescription="${p.origin.label} to ${p.destination.label}"
+        alternativesNote.text=when{p.routes.firstOrNull()?.alternativesStatus=="TEMPORARILY_UNAVAILABLE"->"One walking route recovered. Alternatives are temporarily unavailable; refresh to retry.";p.routes.size==1->"The walking service found one distinct route for these endpoints.";else->"${p.routes.size} distinct walking options"}
         p.routes.forEach{route->
             val isSelected=selected?.routeId==route.routeId;val body=Ui.col(c,16)
             body.addView(Ui.row(c).apply{

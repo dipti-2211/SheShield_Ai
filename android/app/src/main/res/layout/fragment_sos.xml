@@ -102,7 +102,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_call_emergency"
-            style="@style/Widget.SheShield.SosButton"
+            style="@style/Widget.Waymate.SosButton"
             android:layout_width="match_parent"
             android:layout_height="64dp"
             android:text="@string/btn_call_emergency"
